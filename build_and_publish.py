@@ -67,6 +67,17 @@ def main():
     # Nota: Requer que o Token esteja configurado no arquivo .pypirc ou como variável de ambiente
     print("--- Fazendo upload para o PyPI via Twine ---")
     
+    # Verificação prévia do formato do token no .pypirc
+    pypirc_path = Path.home() / ".pypirc"
+    if pypirc_path.exists():
+        try:
+            content = pypirc_path.read_text(encoding="utf-8", errors="ignore")
+            if "password" in content and "pypi-" not in content:
+                print(f"\n[ALERTA] O token em {pypirc_path} parece incorreto (não começa com 'pypi-').")
+                print("Certifique-se de copiar o token completo gerado no site (começando com 'pypi-') e não o ID.\n")
+        except Exception:
+            pass
+    
     auth_help = (
         "\n[DICA] Falha no upload. Verifique sua autenticação.\n"
         "Crie um arquivo .pypirc na sua pasta de usuário (%USERPROFILE%\\.pypirc) com o conteúdo:\n"
