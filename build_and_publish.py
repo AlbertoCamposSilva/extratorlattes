@@ -2,6 +2,7 @@ import re
 import subprocess
 import sys
 import shutil
+import zipfile
 from pathlib import Path
 
 def update_version(file_path):
@@ -62,6 +63,23 @@ def main():
     # 4. Build do pacote
     print("--- Gerando arquivos de distribuição (Build) ---")
     run_command(f'"{sys.executable}" -m build')
+
+    # Verificação de integridade do pacote
+    print("--- Verificando integridade do pacote gerado ---")
+    whl_files = list(Path("dist").glob("*.whl"))
+    if not whl_files:
+        print("Erro: Nenhum arquivo .whl gerado.")
+        sys.exit(1)
+    
+    # Verifica se existe conteúdo do pacote (pasta extratorlattes) dentro do wheel
+    package_name = "extratorlattes"
+    with zipfile.ZipFile(whl_files[0], 'r') as z:
+        has_content = any(f.startswith(f"{package_name}/") or f.startswith(f"{package_name}.py") for f in z.namelist())
+    
+    if not has_content:
+        print(f"\n[ERRO CRÍTICO] O pacote gerado parece vazio! A pasta '{package_name}' não foi encontrada no arquivo .whl.")
+        print(f"Solução: Certifique-se de que existe um arquivo '__init__.py' dentro da pasta '{package_name}'.")
+        sys.exit(1)
 
     # 5. Upload para o PyPI
     # Nota: Requer que o Token esteja configurado no arquivo .pypirc ou como variável de ambiente

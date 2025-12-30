@@ -1,0 +1,27 @@
+# Manipulação e Análise de Dados
+pandas
+numpy
+xlsxwriter
+
+# Banco de Dados e ORM
+psycopg2-binary
+SQLAlchemy
+
+# Estatística e Modelagem
+statsmodels
+
+# Desenvolvimento Web e API
+Flask
+requests
+zeep
+
+# Processamento de Texto e XML
+unidecode
+xmltodict
+beautifulsoup4
+pytz
+
+# Instalação e Empacotamento
+setuptools
+build
+twine

@@ -4,13 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "extratorlattes"
-version = "0.1.5"
+version = "0.1.6"
 description = "Ferramenta para extração e pareamento de dados da Plataforma Lattes"
-# O uv falhou porque não achou o README no local especificado
-readme = "extratorlattes/README.md" 
+readme = "README.md" 
 requires-python = ">=3.8"
 authors = [
-    {name = "Seu Nome"}
+    {name = "Alberto de Campos e Silva"}
 ]
 dependencies = [
     "pandas",
@@ -28,7 +27,6 @@ dependencies = [
     "pytz",
 ]
 
-[tool.setuptools]
-# Isso força o setuptools a encontrar o pacote na estrutura atual
-packages = ["extratorlattes"]
-package-dir = {"extratorlattes" = "extratorlattes"}
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["extratorlattes"]
