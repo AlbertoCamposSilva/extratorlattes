@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "extratorlattes"
-version = "0.1.2"
+version = "0.1.3"
 description = "Ferramenta para extração e pareamento de dados da Plataforma Lattes"
 # O uv falhou porque não achou o README no local especificado
 readme = "extratorlattes/README.md" 

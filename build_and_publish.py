@@ -23,12 +23,14 @@ def update_version(file_path):
     
     return new_version
 
-def run_command(command):
+def run_command(command, error_message=None):
     """Executa comandos de shell com interrupção em caso de erro."""
     try:
         subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Erro ao executar: {command}")
+        if error_message:
+            print(error_message)
         sys.exit(1)
 
 def main():
@@ -64,7 +66,15 @@ def main():
     # 5. Upload para o PyPI
     # Nota: Requer que o Token esteja configurado no arquivo .pypirc ou como variável de ambiente
     print("--- Fazendo upload para o PyPI via Twine ---")
-    run_command(f'"{sys.executable}" -m twine upload dist/*')
+    
+    auth_help = (
+        "\n[DICA] Falha no upload. Verifique sua autenticação.\n"
+        "Crie um arquivo .pypirc na sua pasta de usuário (%USERPROFILE%\\.pypirc) com o conteúdo:\n"
+        "[pypi]\n"
+        "  username = __token__\n"
+        "  password = pypi-seu-token-aqui\n"
+    )
+    run_command(f'"{sys.executable}" -m twine upload --verbose dist/*', error_message=auth_help)
 
     print(f"\nSucesso! Versão {new_ver} publicada no GitHub e PyPI.")
 
