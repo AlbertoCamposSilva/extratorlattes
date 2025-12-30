@@ -38,6 +38,10 @@ def main():
         print("Erro: pyproject.toml não encontrado na pasta atual.")
         return
 
+    # 0. Instalar dependências de build
+    print("--- Instalando dependências de build ---")
+    run_command(f'"{sys.executable}" -m pip install --upgrade build twine')
+
     # 1. Incrementar versão
     new_ver = update_version(pyproject_path)
     print(f"--- Versão atualizada para {new_ver} ---")
@@ -55,12 +59,12 @@ def main():
 
     # 4. Build do pacote
     print("--- Gerando arquivos de distribuição (Build) ---")
-    run_command("python -m build")
+    run_command(f'"{sys.executable}" -m build')
 
     # 5. Upload para o PyPI
     # Nota: Requer que o Token esteja configurado no arquivo .pypirc ou como variável de ambiente
     print("--- Fazendo upload para o PyPI via Twine ---")
-    run_command("python -m twine upload dist/*")
+    run_command(f'"{sys.executable}" -m twine upload dist/*')
 
     print(f"\nSucesso! Versão {new_ver} publicada no GitHub e PyPI.")
 

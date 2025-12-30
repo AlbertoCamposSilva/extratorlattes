@@ -23,3 +23,5 @@ pytz
 
 # Instalação e Empacotamento
 setuptools
+build
+twine
