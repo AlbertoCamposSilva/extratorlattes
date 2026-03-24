@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "extratorlattes"
+version = "0.2.0"
+license = "MIT"
+description = "Ferramenta para extração e pareamento de dados da Plataforma Lattes"
+readme = "README.md" 
+requires-python = ">=3.8"
+authors = [
+    {name = "Alberto de Campos e Silva"}
+]
+dependencies = [
+    "pandas",
+    "numpy",
+    "xlsxwriter",
+    "psycopg2-binary",
+    "SQLAlchemy",
+    "statsmodels",
+    "Flask",
+    "requests",
+    "zeep",
+    "unidecode",
+    "xmltodict",
+    "beautifulsoup4",
+    "pytz",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["extratorlattes"]
