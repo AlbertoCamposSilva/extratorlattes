@@ -1,9 +1,14 @@
 import re
 import subprocess
 import sys
+import os
+import urllib.request
+import urllib.error
+import json
 import shutil
 import zipfile
 from pathlib import Path
+from dotenv import load_dotenv
 
 def update_version(file_path):
     """Lê o pyproject.toml, incrementa a versão e salva."""
@@ -34,6 +39,57 @@ def run_command(command, error_message=None):
             print(error_message)
         sys.exit(1)
 
+def get_github_repo():
+    """Extrai o 'owner' e o 'repo' a partir da configuração do git origin."""
+    try:
+        out = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).decode().strip()
+        # Extrai de: https://github.com/OWNER/REPO.git ou git@github.com:OWNER/REPO.git
+        match = re.search(r'github\.com[:/](.+?)/(.+?)(?:\.git)?$', out)
+        if match:
+            return match.group(1), match.group(2)
+    except Exception:
+        pass
+    return None, None
+
+def create_github_release(version):
+    """Cria uma nova release no GitHub usando a REST API."""
+    try:
+        load_dotenv(r"E:\Python\.env")
+    except ImportError:
+        print("--- Aviso: python-dotenv não instalado. Lendo variáveis nativas do sistema. ---")
+
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print("--- Aviso: Variável de ambiente 'GITHUB_TOKEN' não encontrada. Pulando criação de Release no GitHub. ---")
+        print("Dica: Defina o GITHUB_TOKEN no Windows para automatizar as releases.")
+        return
+
+    owner, repo = get_github_repo()
+    if not owner or not repo:
+        print("--- Aviso: Não foi possível determinar o repositório (origin) no Git. Pulando Release no GitHub. ---")
+        return
+
+    print(f"--- Criando Release v{version} via API do GitHub em {owner}/{repo} ---")
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    
+    data = {"tag_name": f"v{version}", "name": f"Release v{version}", "body": f"Versão automatizada {version}.", "draft": False, "prerelease": False}
+    req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode())
+            print(f"Sucesso! Release publicada no GitHub: {res_data.get('html_url')}")
+    except urllib.error.HTTPError as e:
+        print(f"Erro na API do GitHub ({e.code}): {e.read().decode()}")
+    except Exception as e:
+        print(f"Erro desconhecido ao chamar a API do GitHub: {e}")
+
 def main():
     pyproject_path = Path("pyproject.toml")
     
@@ -43,7 +99,7 @@ def main():
 
     # 0. Instalar dependências de build
     print("--- Instalando dependências de build ---")
-    run_command(f'"{sys.executable}" -m pip install --upgrade build twine')
+    run_command(f'"{sys.executable}" -m pip install --upgrade build twine python-dotenv')
 
     # 1. Incrementar versão
     new_ver = update_version(pyproject_path)
@@ -59,6 +115,7 @@ def main():
     run_command(f'git commit -m "Release v{new_ver}"')
     run_command(f'git tag -a v{new_ver} -m "Version {new_ver}"')
     run_command("git push origin main --tags")
+    create_github_release(new_ver)
 
     # 4. Build do pacote
     print("--- Gerando arquivos de distribuição (Build) ---")
