@@ -23,7 +23,7 @@ dt = dt[pd.notnull(dt.ano_doutorado)]
 
 ## Normalizando as Tabelas
 
-#Preenchendo Nan com zeros nos indicadores
+#Preenchendo Nan com zeros nos lattes_indicadores
 dt.qty_2012 = dt.qty_2012.fillna(0)
 dt.qty_2013 = dt.qty_2013.fillna(0)
 dt.qty_2014 = dt.qty_2014.fillna(0)
@@ -35,7 +35,7 @@ dt.qty_2019 = dt.qty_2019.fillna(0)
 
 #Preenchendo Nan com "nenhum" nas áreas e vínculos
 dt.area_demanda_bruta = dt.area_demanda_bruta.fillna('nenhum')
-dt.areas_conhecimento = dt.areas_conhecimento.fillna('nenhum')
+dt.lattes_areas_conhecimento = dt.lattes_areas_conhecimento.fillna('nenhum')
 dt.tipos_vinculo = dt.tipos_vinculo.fillna('nenhum')
 dt.enquadramento_vinculo = dt.enquadramento_vinculo.fillna('nenhum')
 
@@ -44,7 +44,7 @@ dt.area_demanda_bruta = dt.area_demanda_bruta.str.normalize('NFKD')\
        .str.encode('ascii', errors='ignore')\
        .str.decode('utf-8')\
        .str.lower()
-dt.areas_conhecimento = dt.areas_conhecimento.str.normalize('NFKD')\
+dt.lattes_areas_conhecimento = dt.lattes_areas_conhecimento.str.normalize('NFKD')\
        .str.encode('ascii', errors='ignore')\
        .str.decode('utf-8')\
        .str.lower()
@@ -84,7 +84,7 @@ for id in financiados.id.unique():
     financiado = financiados[financiados.id == id]
     
     #Pegando áreas do Conhecimento do Financiado
-    financiado.areas_conhecimento.iloc[0].split(',')
+    financiado.lattes_areas_conhecimento.iloc[0].split(',')
     
     #Pegando Regiões do Financiado
     região = financiado.iloc[0].uf
@@ -125,7 +125,7 @@ for id in financiados.id.unique():
     pareados = dt
     
     #1. Pareando pela área de conhecimento
-    pareados2 = pareados.loc[(pareados.areas_conhecimento.str.contains(financiado.area_demanda_bruta.unique()[0].split('(')[0].strip(), na=False))]
+    pareados2 = pareados.loc[(pareados.lattes_areas_conhecimento.str.contains(financiado.area_demanda_bruta.unique()[0].split('(')[0].strip(), na=False))]
     if pareados2.id.unique().size > min_para_parear:
         tipos_de_pareamento.append('area_demanda_bruta')
         pareados = pareados2
@@ -183,7 +183,7 @@ for id in financiados.id.unique():
     if not pareados.empty:
 
         #Calculando os erros dos grupos
-        # "grupo" é um dos grupos de indicadores.
+        # "grupo" é um dos grupos de lattes_indicadores.
         for grupo in financiado.grupo.unique():
 
             #Pegando o valor do Financiado
@@ -228,14 +228,14 @@ for id in financiados.id.unique():
             ids_pareados.append(erro)
 
         #Acrescentando Áreas do Conhecimento em Comum como outro indicador
-        areas_conhecimento_financiado = financiado.areas_conhecimento.iloc[0]
+        areas_conhecimento_financiado = financiado.lattes_areas_conhecimento.iloc[0]
         if not areas_conhecimento_financiado == None:
             areas_conhecimento_financiado = areas_conhecimento_financiado.split(',')
             total_areas = len(areas_conhecimento_financiado)
 
             for id_pareado in pareados.id.unique():
                 areas_em_comum = 0
-                lista_areas_conhecimento = pareados.loc[pareados.id == id_pareado].areas_conhecimento
+                lista_areas_conhecimento = pareados.loc[pareados.id == id_pareado].lattes_areas_conhecimento
                 if len(lista_areas_conhecimento) > 0 and not lista_areas_conhecimento.iloc[0] == None:
                     lista_areas_conhecimento = lista_areas_conhecimento.iloc[0].split(',')
                     for area in areas_conhecimento_financiado:
@@ -244,7 +244,7 @@ for id in financiados.id.unique():
                 erro = {
                     'id': id,
                     'id_pareado': id_pareado,
-                    'grupo': 'areas_conhecimento',
+                    'grupo': 'lattes_areas_conhecimento',
                     'valor': areas_em_comum,
                     'erro2': (total_areas - areas_em_comum)**2
                 }

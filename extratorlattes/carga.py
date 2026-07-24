@@ -16,20 +16,20 @@ from collections import OrderedDict
 from sqlalchemy import create_engine, false
 from bs4 import BeautifulSoup, Tag
 # from Lattes import Lattes
-# from Database import Database
+# from acs_toolbox.database import Database
 # from Indicadores import Indicadores
-# from Database import Database
+# from acs_toolbox.database import Database
 import threading
 from functools import wraps
 import pickle
 
 
 class Carga:
-    lista_indicadores = {}
+    lattes_lista_indicadores = {}
     bd_lista_ids = []
-    indicadores = pandas.DataFrame()
+    lattes_indicadores = pandas.DataFrame()
     dados_pessoais = pandas.DataFrame()
-    demanda_bruta = pandas.DataFrame()
+    relatorios_demanda_bruta = pandas.DataFrame()
 
     def __init__(self,
                  path='C:/Lattes/',
@@ -41,9 +41,9 @@ class Carga:
         self.temp_path = self.set_temp_path()
         self.show_execution_time = show_execution_time
         self.bd_lista_ids = None
-        self.indicadores = []
+        self.lattes_indicadores = []
         self.publicações = []
-        self.palavras_chave = []
+        self.lattes_palavras_chave = []
         self.carga = carga
         self.erros_anteriores = []
         self.arquivos_no_HD = {}
@@ -69,7 +69,7 @@ class Carga:
                 self.connect_to_bd = False
 
         self.data_mínima_atualização_lattes = '2020-01-01'
-        self.log_file = 'd:/indicadores.log'
+        self.log_file = 'd:/lattes_indicadores.log'
         self.save_list_to_disk = True
         self.ids_para_atualizar_file = 'd:/lista_ids_para_atualizar.pickle'
         self.ids_para_atualizar = []
@@ -104,7 +104,7 @@ class Carga:
         self.auto_save_json_to_bd = True
         self.pegar_lista_de_importação_de_arquivo = False
 
-        # Para não atualizar indicadores, mas apenas importar o Lattes, definir como False
+        # Para não atualizar lattes_indicadores, mas apenas importar o Lattes, definir como False
         self.atualiza_indicadores = True
 
     def timing(f):
@@ -133,8 +133,8 @@ class Carga:
         if data == None:
             data = "01/01/1900"
         sql = '''
-            select distinct dados_gerais.id from dados_gerais inner join all_lattes
-            on dados_gerais.id = all_lattes.id
+            select distinct lattes_dados_gerais.id_lattes from lattes_dados_gerais inner join all_lattes
+            on lattes_dados_gerais.id_lattes = all_lattes.id_lattes
             WHERE all_lattes.dt_atualizacao >= %s
             '''
         ids = self.bd.query(sql, data)
@@ -157,7 +157,7 @@ class Carga:
 
 
     @timing
-    def get_xml_auto_source(self, id=None, pegar_data_pelos_indicadores=True):
+    def get_xml_auto_source(self, id_lattes=None, pegar_data_pelos_indicadores=True):
         '''Pega o xml de um Currículo Lattes, sendo que verifica a necessidade antes.
 
         Será usado a seguinte ordem de prioridade:
@@ -166,10 +166,10 @@ class Carga:
         3. SOAP do Extrator Lattes
 
         Parâmetros:
-        id (str): define o id do Lattes a ser pego.
+        id_lattes (str): define o id_lattes do Lattes a ser pego.
         '''
-        if not id == None:
-            self.lattes.id = id
+        if not id_lattes == None:
+            self.lattes.id_lattes = id_lattes
         if self.lattes.bd_dt_atualizacao == None:
             self.lattes.get_lattes()
             if not self.lattes.bd_dt_atualizacao == None:
@@ -257,37 +257,37 @@ class Carga:
             del data['E-Mail do Solicitante']
             data = data.rename(
                 columns={'Unnamed: 37': 'E-Mail do Solicitante'})
-            del data['Nível']
-            data = data.rename(columns={'Unnamed: 3': 'Nível'})
+            del data['nivel']
+            data = data.rename(columns={'Unnamed: 3': 'nivel'})
             for column in data.columns:
                 if 'Unnamed' in column:
                     del data[column]
             data['Chamada'] = chamada
-            data['Data Importação'] = data_importação
-            data['id'] = data['Link CVLattes do Proponente'].str[-16:].astype(
+            data['data_importacao'] = data_importação
+            data['id_lattes'] = data['link_cvlattes_proponente'].str[-16:].astype(
                 'int64')
-            data['Início'] = pandas.to_datetime(data['Início'])
-            data['Término'] = pandas.to_datetime(data['Término'])
+            data['inicio'] = pandas.to_datetime(data['inicio'])
+            data['termino'] = pandas.to_datetime(data['termino'])
             data['Envio'] = pandas.to_datetime(
-                data['Data de Envio'] + " " + data['Hora de Envio'])
+                data['data_envio'] + " " + data['hora_envio'])
             data['Carga'] = pandas.to_datetime(
-                data['Data da Carga'] + " " + data['Hora da Carga'])
+                data['data_carga'] + " " + data['hora_carga'])
 
-            del data['Data de Envio']
-            del data['Hora de Envio']
-            del data['Data da Carga']
-            del data['Hora da Carga']
-            data['Valor da Bolsa'] = data['Valor da Bolsa'].astype('float')
-            data['Valor do Custeio'] = data['Valor do Custeio'].astype('float')
-            data['Valor de Capital'] = data['Valor de Capital'].astype('float')
-            data['Valor Total'] = data['Valor Total'].astype('float')
-            data['CPF do Proponente'] = data['CPF do Proponente'].astype(
+            del data['data_envio']
+            del data['hora_envio']
+            del data['data_carga']
+            del data['hora_carga']
+            data['valor_bolsa'] = data['valor_bolsa'].astype('float')
+            data['valor_custeio'] = data['valor_custeio'].astype('float')
+            data['valor_capital'] = data['valor_capital'].astype('float')
+            data['valor_total'] = data['valor_total'].astype('float')
+            data['cpf_proponente'] = data['cpf_proponente'].astype(
                 'Int64')
 
             # Apagar dados anteriores
             if apagar_existente:
                 sql = f'''
-                delete from demanda_bruta
+                delete from relatorios_demanda_bruta
                 where "Chamada" = '{chamada}'
                 '''
                 db = lt.Database()
@@ -295,7 +295,7 @@ class Carga:
 
             # Atualizar tabela do Banco de Dados
             if atualuizar_bd:
-                data.to_sql(name='demanda_bruta', con=lt.Database.engine(),
+                data.to_sql(name='relatorios_demanda_bruta', con=lt.Database.engine(),
                             if_exists='append', index=False)
 
             # Renomeia op arquivo para nome mais amigável e confirmando a importação
@@ -334,13 +334,13 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                 print(f'Importing file {y}')
                 try:
                     lattes = lt.Lattes(path=path)
-                    lattes.id = y[-20:-4]
-                    if lattes.id not in ids_em_JSON:
+                    lattes.id_lattes = y[-20:-4]
+                    if lattes.id_lattes not in ids_em_JSON:
                         lattes.read_zip_from_disk(filename=y)
                         lattes.get_xml()
                         lattes.save_xml_to_disk(replace=False)
                         lattes.save_json_to_disk(replace=False)
-                        print(f'Saved id {lattes.id} to disk.')
+                        print(f'Saved id_lattes {lattes.id_lattes} to disk.')
                 except:
                     with open('d:/erros.txt', 'a') as file:
                         file.write(y + '\n')
@@ -350,13 +350,13 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
         def insere_carga_no_bd(data):
             sql = '''
                 INSERT INTO public."all_lattes" 
-                    (id, sgl_pais, dt_atualizacao, cod_area, cod_nivel, dta_carga) 
+                    (id_lattes, sgl_pais, dt_atualizacao, cod_area, cod_nivel, dta_carga) 
                     VALUES
-                    (%(id)s, %(sgl_pais)s, %(dt_atualizacao)s, %(cod_area)s, %(cod_nivel)s, %(dta_carga)s)
-                    ON CONFLICT (id)
+                    (%(id_lattes)s, %(sgl_pais)s, %(dt_atualizacao)s, %(cod_area)s, %(cod_nivel)s, %(dta_carga)s)
+                    ON CONFLICT (id_lattes)
                     DO
                     UPDATE SET
-                    id = EXCLUDED.id,
+                    id_lattes = EXCLUDED.id_lattes,
                     sgl_pais = EXCLUDED.sgl_pais,
                     dt_atualizacao = EXCLUDED.dt_atualizacao,
                     cod_area = EXCLUDED.cod_area,
@@ -398,7 +398,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                         elif len(r) < 2:
                             row[index] = None
                     data = {
-                        'id': row[0],
+                        'id_lattes': row[0],
                         'sgl_pais': row[1],
                         'dt_atualizacao': row[2],
                         'cod_area': row[3],
@@ -428,7 +428,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                     'SGL_UF_CART_IDENT': row[1],
                     'SGL_PAIS_NASC': row[2],
                     'COD_NIVEL_FORM': row[3],
-                    'id': row[4],
+                    'id_lattes': row[4],
                     'CPF_RH': row[5],
                     'NME_RH': row[6],
                     'NME_RH_FILTRO': row[7],
@@ -461,7 +461,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                     SGL_UF_CART_IDENT, 
                     SGL_PAIS_NASC, 
                     COD_NIVEL_FORM, 
-                    id, 
+                    id_lattes, 
                     CPF_RH, 
                     NME_RH, 
                     NME_RH_FILTRO, 
@@ -492,7 +492,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                     %(SGL_UF_CART_IDENT)s, 
                     %(SGL_PAIS_NASC)s, 
                     %(COD_NIVEL_FORM)s, 
-                    %(id)s, 
+                    %(id_lattes)s, 
                     %(CPF_RH)s, 
                     %(NME_RH)s, 
                     %(NME_RH_FILTRO)s, 
@@ -524,7 +524,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                     SGL_UF_CART_IDENT = EXCLUDED.SGL_UF_CART_IDENT,
                     SGL_PAIS_NASC = EXCLUDED.SGL_PAIS_NASC,
                     COD_NIVEL_FORM = EXCLUDED.COD_NIVEL_FORM,
-                    id = EXCLUDED.id,
+                    id_lattes = EXCLUDED.id_lattes,
                     CPF_RH = EXCLUDED.CPF_RH,
                     NME_RH = EXCLUDED.NME_RH,
                     NME_RH_FILTRO = EXCLUDED.NME_RH_FILTRO,
@@ -592,19 +592,19 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
             print(
                 f'    {round(diretórios_lidos/1.11,1)}% completos.\r', end="", flush=True)
             for y in glob.glob(os.path.join(x[0], '*.zip')):
-                id = y[-20:-4]
-                if id.isnumeric():
+                id_lattes = y[-20:-4]
+                if id_lattes.isnumeric():
                     try:
                         if niveis:
-                            ids_já_carregados[id[0]][id[1]
-                                                     ][id[2]][id[3]][id[4]].append(id)
+                            ids_já_carregados[id_lattes[0]][id_lattes[1]
+                                                     ][id_lattes[2]][id_lattes[3]][id_lattes[4]].append(id_lattes)
                         else:
-                            ids_já_carregados.append(id)
+                            ids_já_carregados.append(id_lattes)
                     except:
-                        print(id)
+                        print(id_lattes)
                         raise Exception
                 else:
-                    print(f'\n\nErro! {id} não é um número.')
+                    print(f'\n\nErro! {id_lattes} não é um número.')
         self.arquivos_no_HD = ids_já_carregados
         return ids_já_carregados
 
@@ -644,11 +644,11 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                             del dt[column]
                         else:
                             if column == 'Lattes':
-                                columns['Lattes'] = 'id'
+                                columns['Lattes'] = 'id_lattes'
                             else:
                                 columns[column] = column.lower()
                     dt = dt.rename(columns=columns)
-                    dt.id = pandas.to_numeric(dt.id)
+                    dt.id_lattes = pandas.to_numeric(dt.id_lattes)
                     Carga.dados_pessoais = pandas.concat(
                         [dt, Carga.dados_pessoais], ignore_index=True)
             print('Eliminando duplicatas.')
@@ -662,10 +662,10 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
     @staticmethod
     def atualiza_id_em_demanda_bruta():
         SQL = '''
-            update demanda_bruta set 
-                id = dados_pessoais.id 
+            update relatorios_demanda_bruta set 
+                id_lattes = dados_pessoais.id_lattes 
             FROM dados_pessoais
-            WHERE lower(unaccent(demanda_bruta."Proponente")) = 
+            WHERE lower(unaccent(relatorios_demanda_bruta."proponente")) = 
                   lower(unaccent(dados_pessoais.nome))        
         '''
         try:
@@ -692,7 +692,7 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                 json_erros = json.load(file)
             for erro in json_erros:
                 if isinstance(erro, dict) or isinstance(erro, OrderedDict):
-                    erros.append(erro['id'])
+                    erros.append(erro['id_lattes'])
                 elif isinstance(erro, list):
                     for err in erro:
                         erros.append(err)
@@ -745,26 +745,26 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
                                 x2)][str(x3)][str(x4)] = []
         return variável
 
-    def carrega_lista_ids_bd(self, tabela="indicadores", niveis=True, data=None, nível_mínimo=None):
+    def carrega_lista_ids_bd(self, tabela="lattes_indicadores", niveis=True, data=None, nível_mínimo=None):
         ids_no_bd = []
         if data == None:
-            sql = f'SELECT distinct id from public."{tabela}";'
+            sql = f'SELECT distinct id_lattes from public."{tabela}";'
             if not nível_mínimo == None:
                 sql += f'''
                 join "all_lattes"
-                on CAST ("{tabela}".id as BIGINT) = "all_lattes".id
+                on CAST ("{tabela}".id_lattes as BIGINT) = "all_lattes".id_lattes
                 WHERE "all_lattes".cod_nivel >= {nível_mínimo}
                 '''
         elif tabela == 'all_lattes':
-            sql = f'SELECT distinct "{tabela}".id from public."{tabela}"'
+            sql = f'SELECT distinct "{tabela}".id_lattes from public."{tabela}"'
             sql += f'\nWHERE "{tabela}".dt_atualizacao >= \'{data}\''
             if not nível_mínimo == None:
                 sql += f' and cod_nivel >= {nível_mínimo}'
         else:
-            sql = f'SELECT distinct "{tabela}".id from public."{tabela}"'
+            sql = f'SELECT distinct "{tabela}".id_lattes from public."{tabela}"'
             sql += f'''
                 join "all_lattes"
-                on CAST ("{tabela}".id as BIGINT) = "all_lattes".id
+                on CAST ("{tabela}".id_lattes as BIGINT) = "all_lattes".id_lattes
                 WHERE "all_lattes".dt_atualizacao >= '{data}'
                 '''
             if not nível_mínimo == None:
@@ -774,13 +774,13 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
         if niveis:
             ids_no_bd = Carga.faz_dimensões()
         for bd_id in bd_lista_ids:
-            id = str(bd_id[0])
-            while len(id) < 16:
-                id = '0' + id
+            id_lattes = str(bd_id[0])
+            while len(id_lattes) < 16:
+                id_lattes = '0' + id_lattes
             if niveis:
-                ids_no_bd[id[0]][id[1]][id[2]][id[3]][id[4]].append(id)
+                ids_no_bd[id_lattes[0]][id_lattes[1]][id_lattes[2]][id_lattes[3]][id_lattes[4]].append(id_lattes)
             else:
-                ids_no_bd.append(id)
+                ids_no_bd.append(id_lattes)
         return ids_no_bd
 
     def set_temp_path(self):
@@ -817,14 +817,14 @@ Caminho Padrão: 'D:/Lattes/Lattes_ZIP'
             print('Carregando ids a ler.')
             for row in spamreader:
                 linhas_lidas += 1
-                id = row[0]
-                if len(id) == 16:
+                id_lattes = row[0]
+                if len(id_lattes) == 16:
                     data_atualizado = datetime.strptime(row[2], '%d/%m/%Y')
                     if (
                             data_mínima_de_atualização < 0 or
                             data_atualizado >= data_mínima_de_atualização
                     ):
-                        self.arquivos_no_csv.append(id)
+                        self.arquivos_no_csv.append(id_lattes)
                 else:
                     print(f'Erro na linha {linhas_lidas}: {row}')
 
@@ -931,22 +931,22 @@ _______  _        ______   _______  _______ _________ _______
             num_erros = len(ids_para_pular)
         if pular_indicadores:
             self.ids_para_pular.extend(Carga.carrega_lista_ids_bd(
-                tabela='indicadores', niveis=False))
+                tabela='lattes_indicadores', niveis=False))
         if pula_bd_lattes:
-            print('\nCarregando lista de indicadores já na tabela Lattes do BD')
+            print('\nCarregando lista de lattes_indicadores já na tabela Lattes do BD')
             self.ids_para_pular.appeextendnd(
                 Carga.carrega_lista_ids_bd(tabela='lattes', niveis=False))
         if pula_hd:
-            print('Gerando lista de ids a atualizar indicadores')
+            print('Gerando lista de ids a atualizar lattes_indicadores')
             self.ids_para_pular.extend(self.carrega_lista_arquivos_no_HD())
 
         # Listando IDs a Incluir
         if de_bd_demanda_bruta:
-            print('\nCarregando lista de indicadores já na tabela Latdemanda_bruta do BD')
+            print('\nCarregando lista de lattes_indicadores já na tabela Latdemanda_bruta do BD')
             self.ids_para_atualizar.extend(Carga.carrega_lista_ids_bd(
-                tabela='demanda_bruta', niveis=False))
+                tabela='relatorios_demanda_bruta', niveis=False))
         if de_bd_dados_pessoais:
-            print('\nCarregando lista de indicadores já na tabela Latdemanda_bruta do BD')
+            print('\nCarregando lista de lattes_indicadores já na tabela Latdemanda_bruta do BD')
             self.ids_para_atualizar.extend(Carga.carrega_lista_ids_bd(
                 tabela='dados_pessoais', niveis=False))
         if de_dados_pessoais == True:
@@ -963,7 +963,7 @@ _______  _        ______   _______  _______ _________ _______
             sai = set(self.ids_para_pular)
             string_comeco_importar = [str(f) for f in começando_com]
             self.ids_para_atualizar = [
-                id for id in entra if not id in sai and id[0] in string_comeco_importar]
+                id_lattes for id_lattes in entra if not id_lattes in sai and id_lattes[0] in string_comeco_importar]
             del entra, sai, string_comeco_importar
             self.ids_para_pular = []
 
@@ -977,9 +977,9 @@ _______  _        ______   _______  _______ _________ _______
         linhas_lidas = 0
         linhas_totais = len(self.ids_para_atualizar)
         print(f'\n\n Há {linhas_totais} arquivos a importar.\n\n')
-        for id in self.ids_para_atualizar:
+        for id_lattes in self.ids_para_atualizar:
             linhas_lidas += 1
-            # print(f'Importando {id}. -> Salvando arquivo compactado no disco.                              \r', end="", flush=True)
+            # print(f'Importando {id_lattes}. -> Salvando arquivo compactado no disco.                              \r', end="", flush=True)
             if linhas_lidas % num_imports_skip_before_log == 0:
                 Carga.move_files_temp_to_path(self.path, self.temp_path)
             # os.system('cls')
@@ -988,19 +988,19 @@ _______  _        ______   _______  _______ _________ _______
             if not show_import_messages:
                 old_stdout = sys.stdout  # backup current stdout -> https://stackoverflow.com/questions/8447185/to-prevent-a-function-from-printing-in-the-batch-console-in-python
                 sys.stdout = open(os.devnull, "w")
-            lattes = lt.Lattes(id=id, path=self.temp_path,
+            lattes = lt.Lattes(id_lattes=id_lattes, path=self.temp_path,
                             auto_save_json_to_bd=False)
             resposta = lattes.get_zip_from_SOAP()
             # print(resposta, insere_no_bd, resposta == True and insere_no_bd == True)
             if resposta == "Curriculo recuperado com sucesso!" and insere_no_bd == True:
                 print(
-                    f'Importando {id}. -> Inserindo no Banco de Dados.                              \r', end="", flush=True)
+                    f'Importando {id_lattes}. -> Inserindo no Banco de Dados.                              \r', end="", flush=True)
                 lattes.get_xml()
                 lattes.insert_json()
             elif not resposta == "Curriculo recuperado com sucesso!":
                 erro = {
                     'data': datetime.now().strftime("%d/%m/%Y, %H:%M:%S"),
-                    'id': id,
+                    'id_lattes': id_lattes,
                     'erro': resposta
                 }
                 erros.append(erro)
@@ -1015,7 +1015,7 @@ _______  _        ______   _______  _______ _________ _______
                     horas_agora <= 18
                     ):
                 print(
-                    f'Importando {id}. -> Esperando para não sobrecarregar o BD do CNPq.    \r', end="", flush=True)
+                    f'Importando {id_lattes}. -> Esperando para não sobrecarregar o BD do CNPq.    \r', end="", flush=True)
                 time.sleep(tempo_a_esperar_em_horário_de_pico)
 
             if max > 0 and linhas_lidas > max:
@@ -1087,8 +1087,8 @@ _______  _        ______   _______  _______ _________ _______
 
         print('\nGerando lista de arquivos a transformar em JSON')
 
-        arquivos = [id for id in ids_em_zip if id not in ids_no_bd[id[0]]
-                    [id[1]][id[2]][id[3]][id[4]]]
+        arquivos = [id_lattes for id_lattes in ids_em_zip if id_lattes not in ids_no_bd[id_lattes[0]]
+                    [id_lattes[1]][id_lattes[2]][id_lattes[3]][id_lattes[4]]]
         linhas_totais = len(arquivos)
         print("Linhas a ler: ", linhas_totais)
 
@@ -1100,27 +1100,27 @@ _______  _        ______   _______  _______ _________ _______
 
         print('Começando importação.')
         tempo_inicio = datetime.now()
-        for id in arquivos:
+        for id_lattes in arquivos:
             linhas_lidas += 1
             os.system('cls')
             print(Carga.show_progress(tempo_inicio, num_imports_skip_before_log,
                   linhas_totais, linhas_lidas, num_erros))
 
-            print(f"Importing id {id}.\r", end="", flush=True)
+            print(f"Importing id_lattes {id_lattes}.\r", end="", flush=True)
             try:
                 if not show_import_messages:
                     old_stdout = sys.stdout  # backup current stdout -> https://stackoverflow.com/questions/8447185/to-prevent-a-function-from-printing-in-the-batch-console-in-python
                     sys.stdout = open(os.devnull, "w")
-                lattes = lt.Lattes(id=id)
+                lattes = lt.Lattes(id_lattes=id_lattes)
                 lattes.path = path
                 lattes.read_xml_from_zip()
-                print(id + ': ' + lattes.insert_json() + '\r')
+                print(id_lattes + ': ' + lattes.insert_json() + '\r')
                 if not show_import_messages:
                     sys.stdout = old_stdout  # reset old stdout
             except EXCEPTION as e:
                 erro = {
                     'data': datetime.now().strftime("%d/%m/%Y, %H:%M:%S"),
-                    'id': id,
+                    'id_lattes': id_lattes,
                     'erro': str(e)
                 }
                 erros.append(erro)
@@ -1170,50 +1170,50 @@ _______  _        ______   _______  _______ _________ _______
         # Origens
         if self.de_hd:
             print(
-                'Carregando lista de indicadores para importar dos Lattes baixados no HD')
+                'Carregando lista de lattes_indicadores para importar dos Lattes baixados no HD')
             self.ids_para_atualizar.extend(
                 self.carrega_lista_arquivos_no_HD(niveis=False))
         if self.de_all_lattes:
             print(
-                '\nCarregando lista de indicadores para importar da tabela all_lattes do BD')
+                '\nCarregando lista de lattes_indicadores para importar da tabela all_lattes do BD')
             self.ids_para_atualizar.extend(self.carrega_lista_ids_bd(
                 tabela='all_lattes', niveis=False, data=self.data_mínima_atualização_lattes, nível_mínimo=self.nível_mínimo))
         if self.de_bd_demanda_bruta:
             print(
-                '\nCarregando lista de indicadores para importar da tabela demanda_bruta do BD')
+                '\nCarregando lista de lattes_indicadores para importar da tabela relatorios_demanda_bruta do BD')
             self.ids_para_atualizar.extend(self.carrega_lista_ids_bd(
-                tabela='demanda_bruta', niveis=False, data=self.data_mínima_atualização_lattes))
+                tabela='relatorios_demanda_bruta', niveis=False, data=self.data_mínima_atualização_lattes))
         if self.de_dados_pessoais:
             print(
-                '\nCarregando lista de indicadores para importar da tabela dados_pessoais do BD')
+                '\nCarregando lista de lattes_indicadores para importar da tabela dados_pessoais do BD')
             self.ids_para_atualizar.appextendend(self.carrega_lista_ids_bd(
                 tabela='dados_pessoais', niveis=False, data=self.data_mínima_atualização_lattes))
 
         # Exceções
         if self.pular_indicadores:
-            print('\nCarregando lista de Ids da tabela indicadores para pular')
+            print('\nCarregando lista de Ids da tabela lattes_indicadores para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='indicadores', niveis=False))
+                tabela='lattes_indicadores', niveis=False))
         if self.pular_palavras_chave:
-            print('\nCarregando lista de Ids da tabela palavras_chave para pular')
+            print('\nCarregando lista de Ids da tabela lattes_palavras_chave para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='palavras_chave', niveis=False))
+                tabela='lattes_palavras_chave', niveis=False))
         if self.pular_areas_conhecimento:
-            print('\nCarregando lista de Ids da tabela areas_conhecimento para pular')
+            print('\nCarregando lista de Ids da tabela lattes_areas_conhecimento para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='areas_conhecimento', niveis=False))
+                tabela='lattes_areas_conhecimento', niveis=False))
         if self.pular_publicações:
-            print('\nCarregando lista de Ids da tabela publicacoes para pular')
+            print('\nCarregando lista de Ids da tabela lattes_publicacoes para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='publicacoes', niveis=False))
+                tabela='lattes_publicacoes', niveis=False))
         if self.pular_dados_gerais:
-            print('\nCarregando lista de Ids da tabela dados_gerais para pular')
+            print('\nCarregando lista de Ids da tabela lattes_dados_gerais para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='dados_gerais', niveis=False))
+                tabela='lattes_dados_gerais', niveis=False))
         if self.pular_vinculos:
-            print('\nCarregando lista de Ids da tabela vinculos para pular')
+            print('\nCarregando lista de Ids da tabela lattes_vinculos para pular')
             ids_para_pular.extend(self.carrega_lista_ids_bd(
-                tabela='vinculos', niveis=False))
+                tabela='lattes_vinculos', niveis=False))
         if self.pular_erros:
             print('\nPegando lista de erros para pular.')
             ids_para_pular.extend(self.carrega_erros_anteriores(self.log_file))
@@ -1252,23 +1252,23 @@ _______  _        ______   _______  _______ _________ _______
         linhas_totais = len(self.ids_para_atualizar)
         num = 0
 
-        for id in self.ids_para_atualizar:
+        for id_lattes in self.ids_para_atualizar:
             num += 1
-            if começando_com == None or id[0:len(começando_com)] == começando_com:
-                print(f'{num} / {linhas_totais}. Importing id {id}.\r',
+            if começando_com == None or id_lattes[0:len(começando_com)] == começando_com:
+                print(f'{num} / {linhas_totais}. Importing id_lattes {id_lattes}.\r',
                       end="", flush=True)
 
                 ind = lt.Indicadores(
-                    id=id, auto_save_json_to_bd=self.auto_save_json_to_bd)
+                    id_lattes=id_lattes, auto_save_json_to_bd=self.auto_save_json_to_bd)
                 ind.on_conflic_update = self.on_conflic_update
                 if self.atualiza_indicadores:
                     ind.atualiza(
-                        indicadores=self.importar_indicadores,
-                        palavras_chave=self.importar_palavras_chave,
-                        areas_conhecimento=self.importar_areas_conhecimento,
+                        lattes_indicadores=self.importar_indicadores,
+                        lattes_palavras_chave=self.importar_palavras_chave,
+                        lattes_areas_conhecimento=self.importar_areas_conhecimento,
                         publicações=self.importar_publicações,
-                        dados_gerais=self.importar_dados_gerais,
-                        vinculos=self.importar_vinculos
+                        lattes_dados_gerais=self.importar_dados_gerais,
+                        lattes_vinculos=self.importar_vinculos
                     )
             if num % num_imports_skip_before_log == 0:
                 segundos_por_linha = (datetime.now() - tempo_inicio)/num

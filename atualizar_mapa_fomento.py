@@ -1,0 +1,152 @@
+import os
+import glob
+import re
+import time
+import datetime
+import pandas as pd
+from sqlalchemy import create_engine
+from acs_toolbox.database import Database
+from extratorlattes.lattesweb import LattesDownloader
+from extratorlattes.lattes_indicadores import Indicadores
+
+def processar_mapa_fomento(diretorio):
+    # 1. Encontrar a planilha Excel mais recente no diretório
+    padrao_busca = os.path.join(diretorio, "*.xlsx") # Pode ser alterado para *.csv se necessário
+    arquivos = glob.glob(padrao_busca)
+    
+    if not arquivos:
+        print(f"Nenhum arquivo encontrado em: {diretorio}")
+        return
+        
+    arquivo_mais_recente = max(arquivos, key=os.path.getmtime)
+    print(f"Arquivo mais recente selecionado: {arquivo_mais_recente}")
+    
+    # Extrair data do nome do arquivo (ex: 2026-04-06)
+    nome_arquivo = os.path.basename(arquivo_mais_recente)
+    match_data = re.search(r'(\d{4}-\d{2}-\d{2})', nome_arquivo)
+    if not match_data:
+        raise ValueError(f"Não foi possível encontrar uma data no formato YYYY-MM-DD no nome do arquivo: {nome_arquivo}")
+        
+    data_extracao_str = match_data.group(1)
+    data_extracao = pd.to_datetime(data_extracao_str).date()
+    print(f"Data de extração identificada: {data_extracao}")
+
+    # 2. Ler a planilha
+    print("Lendo os dados da planilha...")
+    df = pd.read_excel(arquivo_mais_recente)
+    
+    # Tratamento básico de colunas: colocar em minúsculo e trocar espaços por underline
+    df.columns = [str(c).lower().strip().replace(' ', '_') for c in df.columns]
+        
+    # Adicionar a coluna de data da extração
+    df['data_extracao'] = data_extracao
+    
+    table_name = "painel_mapa_fomento"
+    schema_name = "public"
+    
+    # 3. Conexão com o Banco e Validação da Tabela
+    with Database() as db:
+        engine_str = Database.db_engine(config_file=db.config_file)
+        engine = create_engine(engine_str)
+
+        if not db.check_if_table_exists(table_name):
+            print(f"A tabela '{table_name}' não existe. Criando estrutura inicial...")
+            
+            # Exportar apenas as colunas vazias para criar a tabela com os tipos adequados
+            df.head(0).to_sql(table_name, engine, schema=schema_name, if_exists='replace', index=False)
+            print(f"Tabela '{table_name}' criada com sucesso.")
+        else:
+            print(f"Removendo registros anteriores com a data de extração {data_extracao}...")
+            db.execute(f"DELETE FROM {schema_name}.{table_name} WHERE data_extracao::text = %s;", [str(data_extracao)])
+            
+        # 4. Inserção dos dados
+        print(f"Inserindo {len(df)} registros...")
+        df.to_sql(table_name, engine, schema=schema_name, if_exists='append', index=False, method='multi', chunksize=10000)
+        print("Carga concluída com sucesso.")
+        return df
+
+    # 5. Atualização dos Lattes
+def atualizar_lattes(coluna_id_lattes, df):
+    if coluna_id_lattes in df.columns:
+        print("\nIniciando atualização dos currículos Lattes...")
+        ids_brutos = df[coluna_id_lattes].dropna().unique()
+        lattes_ids = []
+        for val in ids_brutos:
+            # Remove casas decimais caso seja lido como float e garante 16 dígitos
+            limpo = str(val).split('.')[0].strip().zfill(16)
+            if len(limpo) == 16 and limpo.isdigit() and limpo not in lattes_ids:
+                lattes_ids.append(limpo)
+        
+        if not lattes_ids:
+            print("Nenhum ID Lattes válido encontrado na planilha.")
+            return
+            
+        print(f"{len(lattes_ids)} IDs Lattes únicos identificados para atualização.")
+        
+        cookies, ua = None, None
+        sessao_capturada = False
+        
+        total_lattes = len(lattes_ids)
+        processados = 0
+        start_time = time.time()
+        
+        for id_lattes in lattes_ids:
+            processados += 1
+            percentual = (processados / total_lattes) * 100
+            tempo_gasto = time.time() - start_time
+            tempo_restante = (tempo_gasto / processados) * (total_lattes - processados)
+            
+            print(f"\n--- Processando Lattes: {id_lattes} ({processados}/{total_lattes} - {percentual:.1f}%) ---")
+            print(f"--- Tempo Gasto: {datetime.timedelta(seconds=int(tempo_gasto))} | Tempo Restante Estimado: {datetime.timedelta(seconds=int(tempo_restante))} ---")
+            try:
+                extrator = LattesDownloader(
+                    id=id_lattes, 
+                    selenium_cookies=cookies,
+                    user_agent=ua,
+                    verbose=True
+                )
+                status = extrator.get_zip_from_REST()
+                
+                if status == "Curriculo recuperado com sucesso!":
+                    # Extrai dados gerais preliminares para verificar se o Lattes veio completo (logado)
+                    extrator.get_dados_gerais()
+                    is_authenticated = bool(extrator.lattes_dados_gerais.get('cpf') or extrator.lattes_dados_gerais.get('data_nascimento'))
+                    
+                    if not is_authenticated and not sessao_capturada:
+                        print("Aviso: Currículo retornado sem dados privados (Sessão expirada ou inexistente).")
+                        cookies, ua = LattesDownloader.capturar_sessao_interativa()
+                        sessao_capturada = True
+                        
+                        # Tenta baixar novamente com a nova sessão capturada
+                        print("Tentando baixar novamente com a nova sessão...")
+                        extrator = LattesDownloader(
+                            id=id_lattes, 
+                            selenium_cookies=cookies,
+                            user_agent=ua,
+                            verbose=True
+                        )
+                        status = extrator.get_zip_from_REST()
+
+                if status == "Curriculo recuperado com sucesso!":
+                    ind = Indicadores(lattes=extrator)
+                    ind.show_sql = False
+                    ind.on_conflic_update = True
+                    ind.show_execution_time = True
+                    
+                    # Executa a extração, conversão e carga no Banco de Dados
+                    ind.atualiza()
+                    print(f"Lattes {id_lattes} atualizado no banco com sucesso.")
+                else:
+                    print(f"Aviso: Não foi possível processar o Lattes {id_lattes}. Status: {status}")
+            except Exception as e:
+                print(f"Erro ao processar Lattes {id_lattes}: {e}")
+    else:
+        print(f"\nA coluna '{coluna_id_lattes}' não foi encontrada na planilha. A atualização dos Lattes será ignorada.")
+        print(f"Colunas disponíveis: {list(df.columns)}")
+
+if __name__ == "__main__":
+    diretorio_alvo = r"D:\alberto.silva\OneDrive CNPq\OneDrive - CNPq\Planilhas Mapa do Fomento"
+    coluna_lattes = "id_lattes" # <--- SUBSTITUA PELO NOME DA COLUNA DE LATTES NA SUA PLANILHA (normalizado)
+    
+    df = processar_mapa_fomento(diretorio_alvo)
+    atualizar_lattes(coluna_lattes, df)

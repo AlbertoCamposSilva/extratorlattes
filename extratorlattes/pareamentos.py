@@ -58,7 +58,7 @@ class pareamentos ():
             #"Orientações - Outras",
             #"Outras Pós-Graduações lato sensu",
             "Anos de Doutor",
-            #'areas_conhecimento',
+            #'lattes_areas_conhecimento',
             ]
     
     def carrega_dados (self):
@@ -76,7 +76,7 @@ class pareamentos ():
         
         CREATE TABLE IF NOT EXISTS public.{self.table_name}
         (
-            id bigint NOT NULL,
+            id_lattes bigint NOT NULL,
             ano integer,
             faixa "char",
             tipos_pareamento json,
@@ -87,7 +87,7 @@ class pareamentos ():
             pareado_3 bigint,
             erro_3 numeric,
             pareamento_describe json,
-            CONSTRAINT {self.table_name}_pkey1 PRIMARY KEY (id)
+            CONSTRAINT {self.table_name}_pkey1 PRIMARY KEY (id_lattes)
         )
         
         TABLESPACE pg_default;
@@ -119,7 +119,7 @@ class pareamentos ():
         self.db.execute(sql)
     
         #Carregar arquivo na memória
-        print('Carregando indicadores na memória. Início em: ', datetime.now())
+        print('Carregando lattes_indicadores na memória. Início em: ', datetime.now())
         self.dt = pd.read_sql("select * from indicadores_pareamento where not ano_doutorado is null", self.engine)
         print(f'dt.size: {dt.size}')
         #size: 386.669.844      
@@ -128,14 +128,14 @@ class pareamentos ():
         #Pegando lista de pareamentos já realizados
         print('Carregando lista de ids já feitos. Início em: ', datetime.now())
         ids_já_feitos = []
-        sql = f'SELECT DISTINCT id FROM {self.table_name};'
+        sql = f'SELECT DISTINCT id_lattes FROM {self.table_name};'
         ids_já_feitos = self.db.query(sql)[0]
         ids_já_feitos = [num[0] for num in ids_já_feitos] # Removendo lista dentro de lista por recuperar SQL
         print(f'len(ids_já_feitos): {len(ids_já_feitos)}')
     
         ## Removendo os ids já feitos
         print('Removendo os ids já feitos')
-        self.self.dt = self.dt[~self.dt.id.isin(ids_já_feitos)]
+        self.self.dt = self.dt[~self.dt.id_lattes.isin(ids_já_feitos)]
     
     
         print('Realizando normalização da tabela. Início em: ', datetime.now())
@@ -147,7 +147,7 @@ class pareamentos ():
         
         ## Normalizando as Tabelas
         
-        #Preenchendo Nan com zeros nos indicadores
+        #Preenchendo Nan com zeros nos lattes_indicadores
         self.dt.qty_2012 = self.dt.qty_2012.fillna(0)
         self.dt.qty_2013 = self.dt.qty_2013.fillna(0)
         self.dt.qty_2014 = self.dt.qty_2014.fillna(0)
@@ -159,7 +159,7 @@ class pareamentos ():
         
         #Preenchendo Nan com "nenhum" nas áreas e vínculos
         self.dt.area_demanda_bruta = self.dt.area_demanda_bruta.fillna('nenhum')
-        self.dt.areas_conhecimento = self.dt.areas_conhecimento.fillna('nenhum')
+        self.dt.lattes_areas_conhecimento = self.dt.lattes_areas_conhecimento.fillna('nenhum')
         self.dt.tipos_vinculo = self.dt.tipos_vinculo.fillna('nenhum')
         self.dt.enquadramento_vinculo = self.dt.enquadramento_vinculo.fillna('nenhum')
         
@@ -168,7 +168,7 @@ class pareamentos ():
                .str.encode('ascii', errors='ignore')\
                .str.decode('utf-8')\
                .str.lower()
-        self.dt.areas_conhecimento = self.dt.areas_conhecimento.str.normalize('NFKD')\
+        self.dt.lattes_areas_conhecimento = self.dt.lattes_areas_conhecimento.str.normalize('NFKD')\
                .str.encode('ascii', errors='ignore')\
                .str.decode('utf-8')\
                .str.lower()
@@ -190,7 +190,7 @@ class pareamentos ():
         ## Alguns pesquisadores foram financiados em um ano, mas não em outro. Assim, aparece duas vezes, uma com pgtos=Nan, outra com pgtos > 0.
         ## Assim, é necessário retirar da lista de pareamento aqueles que foram financiados em algum momento.
         ## Da mesma forma, com certeza houveram aqueles financiados mais de um ano.
-        self.dt = self.dt[~self.dt.id.isin(financiados.id.unique())] #Percebi alguns erros, então tive a certeza de remover os financiados da tabela de pareamento
+        self.dt = self.dt[~self.dt.id_lattes.isin(financiados.id_lattes.unique())] #Percebi alguns erros, então tive a certeza de remover os financiados da tabela de pareamento
         self.dt = self.dt.drop(['chamada', 'programa'], axis=1)
         self.dt = self.dt.drop_duplicates()
        
@@ -208,28 +208,28 @@ class pareamentos ():
 lista_pareamentos = [] # -> Lista com todos os pareados -> Útil apenas para conferência depois
 lista_pareamentos_describe = []  #  -> lista com os describe de todos os pareamentos
 
-número_ids_total = financiados.id.unique().size
+número_ids_total = financiados.id_lattes.unique().size
 número_ids_já_feitos = 0
 tempo_início = datetime.now()
 print(f'Iniciado em {tempo_início}.')
 
-for id in financiados.id.unique():
+for id_lattes in financiados.id_lattes.unique():
     if not número_ids_já_feitos == 0:
         porcentagem_já_feita = (número_ids_já_feitos/número_ids_total)
         tempo_passado = datetime.now() - tempo_início
         tempo_por_id = tempo_passado / número_ids_já_feitos
         tempo_restante = (número_ids_total - número_ids_já_feitos) * tempo_por_id
         tempo_em_que_vai_acabar = datetime.now() + tempo_restante
-        print(f'{número_ids_já_feitos}/{número_ids_total}. {porcentagem_já_feita * 100}% feitos. Fazendo id: {id}. Acabará em {tempo_em_que_vai_acabar}')
+        print(f'{número_ids_já_feitos}/{número_ids_total}. {porcentagem_já_feita * 100}% feitos. Fazendo id_lattes: {id_lattes}. Acabará em {tempo_em_que_vai_acabar}')
     else:
-        print(f'{número_ids_já_feitos}/{número_ids_total}. Fazendo id: {id}.')
+        print(f'{número_ids_já_feitos}/{número_ids_total}. Fazendo id_lattes: {id_lattes}.')
     número_ids_já_feitos += 1
 
     #Pegando dados do ID
-    financiado = financiados[financiados.id == id]
+    financiado = financiados[financiados.id_lattes == id_lattes]
     
     #Pegando áreas do Conhecimento do Financiado
-    financiado.areas_conhecimento.iloc[0].split(',')
+    financiado.lattes_areas_conhecimento.iloc[0].split(',')
     
     #Pegando Regiões do Financiado
     região = financiado.iloc[0].uf
@@ -273,8 +273,8 @@ for id in financiados.id.unique():
     if self.parear_por_area_conhecimento:
         area_para_parear = financiado.area_demanda_bruta.unique()[0].split('(')[0].strip()
         if self.to_print: print('     1. Pareando pela área de conhecimento: ', area_para_parear)
-        pareados2 = pareados.loc[(pareados.areas_conhecimento.str.contains(area_para_parear, na=False))]
-        tamanho_pareados2 = pareados2.id.unique().size
+        pareados2 = pareados.loc[(pareados.lattes_areas_conhecimento.str.contains(area_para_parear, na=False))]
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             tipos_de_pareamento.append('area_demanda_bruta')
             pareados = pareados2
@@ -289,7 +289,7 @@ for id in financiados.id.unique():
             pareados2 = pareados.loc[(pareados.tipos_vinculo.str.contains('servidor_publico', na=False))]
         else:
             pareados2 = pareados.loc[~(pareados.tipos_vinculo.str.contains('servidor_publico', na=False))]
-        tamanho_pareados2 = pareados2.id.unique().size
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             pareados = pareados2
             tipos_de_pareamento.append('tipos_vinculo')
@@ -306,7 +306,7 @@ for id in financiados.id.unique():
             (pareados.ano_doutorado < financiado.ano_doutorado.unique()[0] + 10) &
             (pareados.ano_doutorado > financiado.ano_doutorado.unique()[0] - 10)
             ]
-        tamanho_pareados2 = pareados2.id.unique().size
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             pareados = pareados2
             tipos_de_pareamento.append('ano_doutorado_10')
@@ -322,7 +322,7 @@ for id in financiados.id.unique():
             (pareados.ano_doutorado < financiado.ano_doutorado.unique()[0] + 5) &
             (pareados.ano_doutorado > financiado.ano_doutorado.unique()[0] - 5)
             ]
-        tamanho_pareados2 = pareados2.id.unique().size
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             pareados = pareados2
             tipos_de_pareamento.append('ano_doutorado_05')
@@ -335,7 +335,7 @@ for id in financiados.id.unique():
     if parear_por_sexo:
         if self.to_print: print('     5. Pareando por sexo')
         pareados2 = pareados.loc[(pareados.sexo == financiado.sexo.unique()[0])]
-        tamanho_pareados2 = pareados2.id.unique().size
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             pareados = pareados2
             tipos_de_pareamento.append('sexo')
@@ -353,7 +353,7 @@ for id in financiados.id.unique():
             pareados2 = pareados.loc[pareados.uf.isin(('MG', 'RS', 'RJ', 'PR'))]
         elif tipo_região == 3:
             pareados2 = pareados.loc[~pareados.uf.isin(('SP', 'MG', 'RS', 'RJ', 'PR'))]
-        tamanho_pareados2 = pareados2.id.unique().size
+        tamanho_pareados2 = pareados2.id_lattes.unique().size
         if tamanho_pareados2 > self.min_para_parear:
             pareados = pareados2
             tipos_de_pareamento.append('uf')
@@ -372,7 +372,7 @@ for id in financiados.id.unique():
         anos_doutor_erro = {}
         len_pareados = pareados.size
         ano_doutorado_financiado = financiado.ano_doutorado.iloc[0]
-        areas_conhecimento_financiado = financiado.areas_conhecimento.iloc[0]
+        areas_conhecimento_financiado = financiado.lattes_areas_conhecimento.iloc[0]
         if not areas_conhecimento_financiado == None:
             areas_conhecimento_financiado = areas_conhecimento_financiado.split(',')
             total_areas = len(areas_conhecimento_financiado)
@@ -382,7 +382,7 @@ for id in financiados.id.unique():
         for index, row in pareados.iterrows():
             x += 1
             if not row.grupo in parear_por_grupo: continue
-            if self.to_print: print(f'\r         {x}/{len_pareados} - {int(100*x/len_pareados)}% - id: {row.id}. Grupo: {row.grupo}          ', end="", flush=True)
+            if self.to_print: print(f'\r         {x}/{len_pareados} - {int(100*x/len_pareados)}% - id_lattes: {row.id_lattes}. Grupo: {row.grupo}          ', end="", flush=True)
             #Pegando o valor do Financiado
             ind_financiado = financiado.loc[(financiado.grupo == row.grupo)]
             if not ind_financiado.empty:
@@ -392,27 +392,27 @@ for id in financiados.id.unique():
             ind_pareado = row['qty_' + str(ano)]
             erro2 = (ind_financiado - ind_pareado)**2
             erro = {
-                'id_pareado': row.id,
+                'id_pareado': row.id_lattes,
                 'grupo': row.grupo,
                 'erro2': erro2
             }
             ids_pareados.append(erro)
             
             if "Anos de Doutor" in parear_por_grupo:
-                if row.id not in anos_doutor_erro:
-                    anos_doutor_erro[row.id] = (ano_doutorado_financiado - row.ano_doutorado)**2
+                if row.id_lattes not in anos_doutor_erro:
+                    anos_doutor_erro[row.id_lattes] = (ano_doutorado_financiado - row.ano_doutorado)**2
                     #print(anos_doutor_erro)
             
-            if 'areas_conhecimento' in parear_por_grupo:
+            if 'lattes_areas_conhecimento' in parear_por_grupo:
                 if not areas_conhecimento_financiado == None:
-                    if row.id not in areas_conhecimento_erro:
+                    if row.id_lattes not in areas_conhecimento_erro:
                         
                         areas_em_comum = 0
-                        lista_areas_conhecimento = row.areas_conhecimento.split(',')
+                        lista_areas_conhecimento = row.lattes_areas_conhecimento.split(',')
                         for area in areas_conhecimento_financiado:
                             if area in lista_areas_conhecimento:
                                 areas_em_comum += 1
-                        areas_conhecimento_erro[row.id] = (total_areas - areas_em_comum)**2
+                        areas_conhecimento_erro[row.id_lattes] = (total_areas - areas_em_comum)**2
  
                 
     
@@ -428,20 +428,20 @@ for id in financiados.id.unique():
                 #print(erro)
                 
         #Acrescentando Áreas do Conhecimento como um Indicador
-        if "areas_conhecimento" in parear_por_grupo:
+        if "lattes_areas_conhecimento" in parear_por_grupo:
             for key,value in areas_conhecimento_erro.items():
                 erro = {
                     'id_pareado': key,
-                    'grupo': "areas_conhecimento",
+                    'grupo': "lattes_areas_conhecimento",
                     'erro2': value
                 }
                 ids_pareados.append(erro)
  
     
-        #Calculando o Desvio Padrão por id pareado
+        #Calculando o Desvio Padrão por id_lattes pareado
         erro = pd.DataFrame(ids_pareados)
         desvio_padrão = []
-        if self.to_print: print('         Calculando o Desvio Padrão por id pareado            ')
+        if self.to_print: print('         Calculando o Desvio Padrão por id_lattes pareado            ')
         if not erro.empty:
             desvio_padrão = []  # -> VARIÁVEL QUE VAI CONTER OS IDS PAREADOS
             for id_pareado in erro.id_pareado.unique():
@@ -457,7 +457,7 @@ for id in financiados.id.unique():
                     desvio_padrão.append(err)
                     lista_pareamentos.append(err)
     
-                    #db.insert_dict(self.table_name, err, on_conflict=['id', 'id_pareado'])
+                    #db.insert_dict(self.table_name, err, on_conflict=['id_lattes', 'id_pareado'])
                     
             pareados_por_desvio_padrão = pd.DataFrame(desvio_padrão)
             if not pareados_por_desvio_padrão.empty:
@@ -468,7 +468,7 @@ for id in financiados.id.unique():
                       
     if self.to_print: print('     Incluindo no BD')
     lista_pareado_para_incluir_no_bd = {
-        'id': id,
+        'id_lattes': id_lattes,
         'ano': ano,
         'faixa': faixa,
         'tipos_pareamento': json.dumps(tipos_de_pareamento),
@@ -481,7 +481,7 @@ for id in financiados.id.unique():
         lista_pareado_para_incluir_no_bd['erro_' + str(x)] = row['erro']
         x += 1
         if x > self.num_pareamentos: break
-    db.insert_dict(self.table_name, lista_pareado_para_incluir_no_bd, on_conflict=['id'])
+    db.insert_dict(self.table_name, lista_pareado_para_incluir_no_bd, on_conflict=['id_lattes'])
     
 porcentagem_já_feita = (número_ids_já_feitos/número_ids_total)
 print(f'''
@@ -490,10 +490,10 @@ Tarefa Terminada.
 
 {número_ids_já_feitos}. {porcentagem_já_feita * 100}% feitos. 
 {ids_já_feitos} pulados no início. 
-Último feito: {id}. 
+Último feito: {id_lattes}. 
 Iniciado em: {tempo_início}.
 Acabou em {datetime.now()}.
-Tempo por id analisado: {(datetime.now() - tempo_início)/número_ids_já_feitos} segundos.
+Tempo por id_lattes analisado: {(datetime.now() - tempo_início)/número_ids_já_feitos} segundos.
 
 Criando tabela Excel com desvios padrões:
 ''')
@@ -502,7 +502,7 @@ Criando tabela Excel com desvios padrões:
 pareados = pd.read_sql(self.table_name, engine)
 
 #Carregar arquivo na memória
-dt = pd.read_sql(f"select * from public.indicadores_pareamento where not ano_doutorado is null and id in (SELECT distinct(unnest(array[id, pareado_1, pareado_2, pareado_3])) AS id FROM public.{self.table_name})", engine)
+dt = pd.read_sql(f"select * from public.indicadores_pareamento where not ano_doutorado is null and id_lattes in (SELECT distinct(unnest(array[id_lattes, pareado_1, pareado_2, pareado_3])) AS id_lattes FROM public.{self.table_name})", engine)
 
 ## Retirada dos não doutores - Existem 3 não doutores contemplados!!!
 dt = dt[pd.notnull(dt.ano_doutorado)]
@@ -510,7 +510,7 @@ dt = dt[pd.notnull(dt.ano_doutorado)]
 
 ## Normalizando as Tabelas
 
-#Preenchendo Nan com zeros nos indicadores
+#Preenchendo Nan com zeros nos lattes_indicadores
 dt.qty_2012 = dt.qty_2012.fillna(0)
 dt.qty_2013 = dt.qty_2013.fillna(0)
 dt.qty_2014 = dt.qty_2014.fillna(0)
@@ -522,7 +522,7 @@ dt.qty_2019 = dt.qty_2019.fillna(0)
 
 #Preenchendo Nan com "nenhum" nas áreas e vínculos
 dt.area_demanda_bruta = dt.area_demanda_bruta.fillna('nenhum')
-dt.areas_conhecimento = dt.areas_conhecimento.fillna('nenhum')
+dt.lattes_areas_conhecimento = dt.lattes_areas_conhecimento.fillna('nenhum')
 dt.tipos_vinculo = dt.tipos_vinculo.fillna('nenhum')
 dt.enquadramento_vinculo = dt.enquadramento_vinculo.fillna('nenhum')
 
@@ -531,7 +531,7 @@ dt.area_demanda_bruta = dt.area_demanda_bruta.str.normalize('NFKD')\
        .str.encode('ascii', errors='ignore')\
        .str.decode('utf-8')\
        .str.lower()
-dt.areas_conhecimento = dt.areas_conhecimento.str.normalize('NFKD')\
+dt.lattes_areas_conhecimento = dt.lattes_areas_conhecimento.str.normalize('NFKD')\
        .str.encode('ascii', errors='ignore')\
        .str.decode('utf-8')\
        .str.lower()
@@ -552,14 +552,14 @@ dt = dt[pd.isnull(dt.pgtos)]
 ## Alguns pesquisadores foram financiados em um ano, mas não em outro. Assim, aparece duas vezes, uma com pgtos=Nan, outra com pgtos > 0.
 ## Assim, é necessário retirar da lista de pareamento aqueles que foram financiados em algum momento.
 ## Da mesma forma, com certeza houveram aqueles financiados mais de um ano.
-dt = dt[~dt.id.isin(financiados.id.unique())] #Percebi alguns erros, então tive a certeza de remover os financiados da tabela de pareamento
+dt = dt[~dt.id_lattes.isin(financiados.id_lattes.unique())] #Percebi alguns erros, então tive a certeza de remover os financiados da tabela de pareamento
 
 ## Criando Excel Writer
 path = f"C:/Users/silva/CNPq/Lattes/Tabela_Melaine_{self.table_name}.xlsx"
 writer = pd.ExcelWriter(path, engine = 'xlsxwriter')
     
 # Pegando tabela com contagem de grupos
-lista_indicadores = []
+lattes_lista_indicadores = []
 for grupo in dt.grupo.unique():
     dt_grupo = dt[dt.grupo == grupo]
     financiados_grupo = financiados[financiados.grupo == grupo]
@@ -570,11 +570,11 @@ for grupo in dt.grupo.unique():
         'financiados_desvio_padrão': financiados_grupo.qty_2012.std(),
         'pareados_desvio_padrão': dt_grupo.qty_2012.std()
     }
-    lista_indicadores.append (tabela)
+    lattes_lista_indicadores.append (tabela)
 
 ## Tabela Ano Doutorado
-financiados_dt = financiados[['id', 'ano_doutorado']].drop_duplicates() 
-dt_dt = dt[['id', 'ano_doutorado']].drop_duplicates()  
+financiados_dt = financiados[['id_lattes', 'ano_doutorado']].drop_duplicates() 
+dt_dt = dt[['id_lattes', 'ano_doutorado']].drop_duplicates()  
 tabela = {
     'grupo': 'ano_doutorado',
     'financiados_média': financiados_dt.ano_doutorado.mean(),
@@ -582,26 +582,26 @@ tabela = {
     'financiados_desvio_padrão': financiados_dt.ano_doutorado.std(),
     'pareados_desvio_padrão': dt_dt.ano_doutorado.std()
 }
-lista_indicadores.append (tabela)
+lattes_lista_indicadores.append (tabela)
 
 
 ### Salvando a primeira planilha no Writer
-tabela = pd.DataFrame(lista_indicadores)
+tabela = pd.DataFrame(lattes_lista_indicadores)
 tabela.to_excel(writer, sheet_name = 'Grupos')
 
 ## Tabela Sexo
-financiados_sexo = financiados[['id', 'sexo']].drop_duplicates() 
-dt_sexo = dt[['id', 'sexo']].drop_duplicates()  
-fsm = financiados_sexo[financiados_sexo.sexo == 'M'].id.count()
-fsf = financiados_sexo[financiados_sexo.sexo == 'F'].id.count()
-dsm = dt_sexo[dt_sexo.sexo == 'M'].id.count()
-dsf = dt_sexo[dt_sexo.sexo == 'F'].id.count()
+financiados_sexo = financiados[['id_lattes', 'sexo']].drop_duplicates() 
+dt_sexo = dt[['id_lattes', 'sexo']].drop_duplicates()  
+fsm = financiados_sexo[financiados_sexo.sexo == 'M'].id_lattes.count()
+fsf = financiados_sexo[financiados_sexo.sexo == 'F'].id_lattes.count()
+dsm = dt_sexo[dt_sexo.sexo == 'M'].id_lattes.count()
+dsf = dt_sexo[dt_sexo.sexo == 'F'].id_lattes.count()
 tabela = [['Descrição', 'Valor']]
 tabela.append(['grupo', 'sexo'])
 tabela.append(['financiados: homens %', fsm/(fsm + fsf)])
 tabela.append(['pareados: homens %', dsm/(dsm + dsf)])
-tabela.append(['total_financiados', financiados_sexo.id.count()])
-tabela.append(['total_pareados', dt_sexo.id.count()])
+tabela.append(['total_financiados', financiados_sexo.id_lattes.count()])
+tabela.append(['total_pareados', dt_sexo.id_lattes.count()])
 sexo = pd.DataFrame(tabela)
 sexo.to_excel(writer, sheet_name = 'Sexo')
 

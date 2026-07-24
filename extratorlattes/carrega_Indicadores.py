@@ -13,10 +13,10 @@ def faz_carga(pasta):
     for zip in zips:
         if os.path.basename(zip)[0:7]=='Lattes_':
             número += 1
-            id = os.path.basename(zip)[7:-4]
-            print(f'{número}: Recuperando dados do Currículo: {id}')
+            id_lattes = os.path.basename(zip)[7:-4]
+            print(f'{número}: Recuperando dados do Currículo: {id_lattes}')
             lattes = Lattes()
-            lattes.id = id
+            lattes.id_lattes = id_lattes
 
             if lattes.read_zip_from_disk():
                 lattes.get_xml()
@@ -25,7 +25,7 @@ def faz_carga(pasta):
                 lattes.get_indicadores()
                 lattes.update_indicadores_bd()
             else:
-                print('Erro ao carregar arquivo:', lattes.id)
+                print('Erro ao carregar arquivo:', lattes.id_lattes)
 
 
 
@@ -34,8 +34,8 @@ class Carga:
 
     def __init__(self, pasta = r'C:\Downloads'):
         self.pasta = pasta
-        self.indicadores = []
-        self.indicadores = list(map(self.get_indicators,self.pega_lista_zips()))
+        self.lattes_indicadores = []
+        self.lattes_indicadores = list(map(self.get_indicators,self.pega_lista_zips()))
 
 
     def pega_lista_zips (self, pasta = None):
@@ -49,15 +49,15 @@ class Carga:
 
     def get_indicators (self, arq):
         print(f'calling get with arq {arq}')
-        #Com a lista de indicadores, coloca todos na variável da classe Indicadores.Indicadores
+        #Com a lista de lattes_indicadores, coloca todos na variável da classe Indicadores.Indicadores
         número = 0
         if os.path.basename(arq)[0:7]=='Lattes_':
             número += 1
-            id = os.path.basename(arq)[7:-4]
-            print(f'{número}: Recuperando dados do Currículo: {id}')
+            id_lattes = os.path.basename(arq)[7:-4]
+            print(f'{número}: Recuperando dados do Currículo: {id_lattes}')
             lattes = Lattes()
-            lattes.id = id
+            lattes.id_lattes = id_lattes
             lattes.read_zip_from_disk()
-            indicadores = Indicadores(lattes.xml, id = id)
-            indicadores.get_indicadores() 
-            return indicadores.indicadores
+            lattes_indicadores = Indicadores(lattes.xml, id_lattes = id_lattes)
+            lattes_indicadores.get_indicadores() 
+            return lattes_indicadores.lattes_indicadores

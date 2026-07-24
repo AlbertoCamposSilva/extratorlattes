@@ -40,7 +40,7 @@ class Regressao:
         self.include = []
         self.média_investimento = None
         self.total_investido = None
-        self.lista_indicadores = []
+        self.lattes_lista_indicadores = []
         self.lista_cas = []
         self.lista_chamadas = []
         self.lista_programas = []
@@ -91,18 +91,18 @@ class Regressao:
             sql_select += f'\n            ,sum(qty) FILTER (WHERE ano <= {ano}) AS qty_{ano}'
 
         sql_from = '''
-        from demanda_bruta
+        from relatorios_demanda_bruta
         left join
-                (select "Processo" as processo, sum("Valor Pago") as pgtos from pagamentos
-                where "Processo" in (select "Processo" from demanda_bruta)
-                group by "Processo") AS pgtos
-            on demanda_bruta."Processo" = pgtos.processo
-        left join indicadores
-            on CAST(demanda_bruta.id as bigint) = indicadores.id
+                (select "processo" as processo, sum("Valor Pago") as pgtos from dados_abertos_pagamentos
+                where "processo" in (select "processo" from relatorios_demanda_bruta)
+                group by "processo") AS pgtos
+            on relatorios_demanda_bruta."processo" = pgtos.processo
+        left join lattes_indicadores
+            on CAST(relatorios_demanda_bruta.id_lattes as bigint) = lattes_indicadores.id_lattes
         inner join all_lattes
-            on CAST(demanda_bruta.id as bigint) = all_lattes.id
+            on CAST(relatorios_demanda_bruta.id_lattes as bigint) = all_lattes.id_lattes
         inner join indicadores_nomes
-            on indicadores.tipo = indicadores_nomes.tipo
+            on lattes_indicadores.tipo = indicadores_nomes.tipo
         '''
 
         sql_where = f"""
@@ -111,10 +111,10 @@ class Regressao:
 
         sql_group_by = '''
         GROUP BY
-            indicadores.id 
+            lattes_indicadores.id_lattes 
             ,indicadores_nomes.nome
-            ,demanda_bruta."Processo"
-            ,demanda_bruta."Chamada"
+            ,relatorios_demanda_bruta."processo"
+            ,relatorios_demanda_bruta."Chamada"
             ,pgtos.pgtos'''
 
         if not self.tipo_indicador is None:
@@ -122,34 +122,34 @@ class Regressao:
                 sql_where += f"\n            and indicadores_nomes.nome  = '{self.tipo_indicador}'"
         if not self.chamada is None:
             if not ignore_filters:
-                sql_where += f'\n            and demanda_bruta.\"Chamada\" = \'{self.chamada}\''
+                sql_where += f'\n            and relatorios_demanda_bruta.\"Chamada\" = \'{self.chamada}\''
         if not self.programa is None:
             self.select_programa = True
             if not ignore_filters:
-                sql_where += f'\n            and demanda_bruta."Programa" = \'{self.programa}\''
+                sql_where += f'\n            and relatorios_demanda_bruta."programa" = \'{self.programa}\''
         if not self.CA is None:
             self.select_CA = True
             if not ignore_filters:
-                sql_where += f'\n            and demanda_bruta."CA" = \'{self.CA}\''
+                sql_where += f'\n            and relatorios_demanda_bruta."ca" = \'{self.CA}\''
         if not self.área is None:
             self.select_área = True
             sql_from += '''
-                        inner join areas_conhecimento
-                            on CAST(demanda_bruta.id as bigint) = areas_conhecimento.id'''
+                        inner join lattes_areas_conhecimento
+                            on CAST(relatorios_demanda_bruta.id_lattes as bigint) = lattes_areas_conhecimento.id_lattes'''
             if not ignore_filters:
-                sql_where += f"\n            and areas_conhecimento.area = \'{self.área}\'"
+                sql_where += f"\n            and lattes_areas_conhecimento.area = \'{self.área}\'"
 
         if self.select_chamada:
             sql_select += '\n            ,"Chamada" as chamada'
         if self.select_área:
-            sql_select += '\n            ,areas_conhecimento.area'
-            sql_group_by += '\n            ,areas_conhecimento.area'
+            sql_select += '\n            ,lattes_areas_conhecimento.area'
+            sql_group_by += '\n            ,lattes_areas_conhecimento.area'
         if self.select_programa:
-            sql_select += '\n            ,demanda_bruta."Programa" AS programa'
-            sql_group_by += '\n            ,demanda_bruta."Programa"'
+            sql_select += '\n            ,relatorios_demanda_bruta."programa" AS programa'
+            sql_group_by += '\n            ,relatorios_demanda_bruta."programa"'
         if self.select_CA:
-            sql_select += '\n            ,demanda_bruta."CA" AS ca'
-            sql_group_by += '\n            ,demanda_bruta."CA"'
+            sql_select += '\n            ,relatorios_demanda_bruta."ca" AS ca'
+            sql_group_by += '\n            ,relatorios_demanda_bruta."ca"'
 
         self.sql = sql_select + sql_from + sql_where + sql_group_by
 
@@ -157,7 +157,7 @@ class Regressao:
         parâmetros = {
             'chamada': self.chamada,
             'programa': self.programa,
-            'CA': self.CA,
+            'ca': self.CA,
             'área': self.área,
             'indicador': self.tipo_indicador,
             'data': self.data_atualização,
@@ -246,7 +246,7 @@ class Regressao:
         for ano in range(self.ano_início, self.ano_fim + 1):
             self.pd['qty_' +
                     str(ano)] = pd.to_numeric(self.pd['qty_' + str(ano)].fillna(0))
-        self.pd.dropna(subset=["id"], inplace=True)
+        self.pd.dropna(subset=["id_lattes"], inplace=True)
 
     def fit(self, refaz=False):
         data = self.pd
@@ -270,7 +270,7 @@ class Regressao:
                 X2 = sm.add_constant(X)
                 est = sm.OLS(y, X2)
                 self.est2 = est.fit()
-                print('Regressão realizada. Gravando resultados.')
+                print('Regressão realizada. Gravando llm_resultados.')
                 self.grava_resultados()
                 return self.est2.summary()
             except Exception as e:
@@ -281,17 +281,17 @@ class Regressao:
             return 'Regressão já realizada - não será feita novamente.'
 
     def pega_lista_indicadores(self):
-        if self.lista_indicadores == []:
+        if self.lattes_lista_indicadores == []:
             SQL = '''
                     select distinct nome from indicadores_nomes
                     '''
-            self.lista_indicadores = [x[0] for x in self.db.query(SQL)[0]]
-        return self.lista_indicadores
+            self.lattes_lista_indicadores = [x[0] for x in self.db.query(SQL)[0]]
+        return self.lattes_lista_indicadores
 
     def pega_lista_programas(self):
         if self.lista_programas == []:
             SQL = '''
-                    select distinct "Programa" from demanda_bruta
+                    select distinct "programa" from relatorios_demanda_bruta
                     '''
             self.lista_programas = [x[0] for x in self.db.query(SQL)[0]]
         return self.lista_programas
@@ -299,7 +299,7 @@ class Regressao:
     def pega_lista_chamadas(self):
         if self.lista_chamadas == []:
             SQL = '''
-                    select distinct "Chamada" from demanda_bruta
+                    select distinct "Chamada" from relatorios_demanda_bruta
                     '''
             self.lista_chamadas = [x[0] for x in self.db.query(SQL)[0]]
         return self.lista_chamadas
@@ -307,7 +307,7 @@ class Regressao:
     def pega_lista_cas(self):
         if self.lista_cas == []:
             SQL = '''
-                    select distinct "CA" from demanda_bruta
+                    select distinct "ca" from relatorios_demanda_bruta
                     '''
             self.lista_cas = [x[0] for x in self.db.query(SQL)[0]]
         return self.lista_cas
@@ -322,7 +322,7 @@ class Regressao:
             self.pega_lista_chamadas()
             self.pega_lista_programas()
             self.pega_lista_indicadores()
-            print('Pegando lista de indicadores no BD')
+            print('Pegando lista de lattes_indicadores no BD')
             self.select_chamada = True
             self.select_programa = True
             self.get_pd(ignore_filters=True)
@@ -337,14 +337,14 @@ class Regressao:
             for self.programa in self.lista_programas:
                 num_programa += 1
                 num_indicador = 0
-                for self.tipo_indicador in self.lista_indicadores:
+                for self.tipo_indicador in self.lattes_lista_indicadores:
                     num_indicador += 1
                     self.est = None
                     print(f'''
 Regressão Linear:
 Chamada {num_chamada} / {len(self.lista_chamadas)}: {self.chamada}   
 Programa {num_programa} / {len(self.lista_programas)}: {self.programa}                 
-Indicador {num_indicador} / {len(self.lista_indicadores)}: {self.tipo_indicador}''')
+Indicador {num_indicador} / {len(self.lattes_lista_indicadores)}: {self.tipo_indicador}''')
                     resultado = self.fit(refaz=refaz)
                     # os.system('cls')
                     print(f'''
@@ -359,15 +359,15 @@ ___
 
     def pega_tabela_para_regressão(self, sql=None):
         '''
-        Pega os indicadores para fazer o pareamento e os armazena em self.data_frame        
+        Pega os lattes_indicadores para fazer o pareamento e os armazena em self.data_frame        
         '''
-        print('Carregando indicadores na memória. Início em: ', datetime.now())
+        print('Carregando lattes_indicadores na memória. Início em: ', datetime.now())
 
         if sql is None:
             sql = '''
             select * from financiamentos_doutorandos_2014
                 left join indicadores_doutorado
-                    on indicadores_doutorado.id = financiamentos_doutorandos_2014.id
+                    on indicadores_doutorado.id_lattes = financiamentos_doutorandos_2014.id_lattes
                 inner join indicadores_nomes
                     on indicadores_nomes.tipo = indicadores_doutorado.indicador_tipo                 
             '''
@@ -394,7 +394,7 @@ ___
         df['bool_nenhum'] = df.apply(lambda d: 1 if (d['capes'] == False and d['pagtos'] == 0)
                                      else 0, axis=1)
 
-        # Preenchendo Nan com zeros nos indicadores
+        # Preenchendo Nan com zeros nos lattes_indicadores
         df.qty_2012 = df.qty_2012.fillna(0)
         df.qty_2013 = df.qty_2013.fillna(0)
         df.qty_2014 = df.qty_2014.fillna(0)
@@ -406,7 +406,7 @@ ___
         df.capes = df.capes.fillna(0)
         df.pagtos = df.pagtos.fillna(0)
 
-        valor_total_cnpq = df[['id', 'pagtos']
+        valor_total_cnpq = df[['id_lattes', 'pagtos']
                               ].loc[df['pagtos'] > 0].drop_duplicates().sum().pagtos
         df['porcent_pagos'] = df['pagtos']/valor_total_cnpq
 
@@ -438,7 +438,7 @@ ___
             if self.verbose:
                 print('Dropping Não Pareados')
             pareados = self.pega_lista_de_pareados()
-            df.drop(df.loc[~df.id.isin(pareados.id)
+            df.drop(df.loc[~df.id_lattes.isin(pareados.id_lattes)
                            ].loc[df.pagtos == 0].index, inplace=True)
 
         self.dt = df
@@ -450,13 +450,13 @@ ___
         Pega lista dos ids que foram pareados e os armazena em self.ids_pareados
         '''
         sql_ids_pareados = f'''
-            select pareado_1 as id from public.{tabela}
-            UNION select pareado_2 as id from public.{tabela}
-            UNION select pareado_3 as id from public.{tabela}
+            select pareado_1 as id_lattes from public.{tabela}
+            UNION select pareado_2 as id_lattes from public.{tabela}
+            UNION select pareado_3 as id_lattes from public.{tabela}
             '''
         if self.verbose:
             print(
-                'Carregando indicadores dos pareados na memória. Início em: ', datetime.now())
+                'Carregando lattes_indicadores dos pareados na memória. Início em: ', datetime.now())
 
         self.ids_pareados = pd.read_sql(sql_ids_pareados, self.db.engine())
         if self.verbose:
@@ -544,7 +544,7 @@ ___
                     result = {
                         'Indicador': self.indicador,
                         'reg': reg,
-                        'Erro': False,
+                        'erro': False,
                         'Prob (F-statistic)': reg.f_pvalue,
                         'Parâmetros': reg.params,
                         "P>|t|": reg.pvalues,
@@ -583,7 +583,7 @@ ___
         except:
             return {
                 'Indicador': indicador,
-                'Erro': True,
+                'erro': True,
                 'Prob (F-statistic)': None,
                 'Parâmetros': None,
                 "P>|t|": None,
@@ -633,7 +633,7 @@ ___
         if self.verbose:
             print(self.result)
         num_regressões = 0
-        while self.drop_not_significant and self.result['Erro'] == False \
+        while self.drop_not_significant and self.result['erro'] == False \
                 and (math.isnan(self.result['P>|t|'].max())
                      or self.result['P>|t|'].max() > confiança):
             num_regressões += 1
@@ -673,11 +673,11 @@ ___
             if self.verbose:
                 print(self.result)
 
-        if self.result['Erro'] == False and self.result['Prob (F-statistic)'] < confiança and self.result['P>|t|'].max() < confiança:
+        if self.result['erro'] == False and self.result['Prob (F-statistic)'] < confiança and self.result['P>|t|'].max() < confiança:
             self.result['Confiança'] = confiança
             return self.result
         else:
-            self.result['Confiança'] = 'Erro'
+            self.result['Confiança'] = 'erro'
         return self.result
 
     def regressão_com_lista_confianças (self,
@@ -705,7 +705,7 @@ ___
             if self.verbose:
                 print('Fazendo confiança: ', confiança)
             self.result = self.regressão_com_confiança(dt, indicador, variável_dependente, variáveis_independentes, confiança)
-            if not self.result['Confiança'] == 'Erro':
+            if not self.result['Confiança'] == 'erro':
                 break
         if self.verbose:
             print(self.result)
@@ -725,7 +725,7 @@ ___
         if self.preenche_todos_ids == False:
             return dados
 
-        lista_ids = dt.loc[~dt.id.isin(dados.id)].id.unique()
+        lista_ids = dt.loc[~dt.id_lattes.isin(dados.id_lattes)].id_lattes.unique()
 
         feitos = 0
         tempo_início = datetime.now()
@@ -748,14 +748,14 @@ ___
             print('\nPreenchendo com zeros os Ids faltantes. Tamanho: ',
                   número_total)
 
-        for id in lista_ids:
+        for id_lattes in lista_ids:
             if self.verbose:
-                self.print_time(feitos, número_total, tempo_início, tempo_último, atual=id)
+                self.print_time(feitos, número_total, tempo_início, tempo_último, atual=id_lattes)
                 feitos += 1
                 tempo_último = datetime.now()
 
             row = {
-                'id': id,
+                'id_lattes': id_lattes,
                 'pagtos': 0,
                 'capes': False,
                 'indicador_tipo': indicador_tipo,
@@ -792,7 +792,7 @@ ___
         tempo_último = datetime.now()
         print(f'Iniciado em {tempo_início}.')
 
-        # pegando lista de todos os indicadores
+        # pegando lista de todos os lattes_indicadores
         todos_indicadores = self.dt.nome.unique()
 
         # iterando sobre cada indicador

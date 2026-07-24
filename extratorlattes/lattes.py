@@ -1,4 +1,5 @@
 import extratorlattes
+from acs_toolbox.database import Database
 import os
 import zeep
 import pytz
@@ -13,32 +14,22 @@ from collections import OrderedDict
 import pandas
 
 
-# from database import Database
+# from acs_toolbox.database import Database
 
 
 class Lattes:
 
     def __init__(self,
-                 id=None,
+                 id_lattes=None,
                  wsdl='http://servicosweb.cnpq.br/srvcurriculo/WSCurriculo?wsdl',
                  auto_save_json_to_bd=False,
                  path=r'C:\Lattes_Excrator',
                  verbose=False,
                  show_sql=False,
                  connect_to_db=False, 
-                 db_config_file=r'e:/Python/database.ini'):
-        """
-        Inicializa a classe Lattes.
-
-        Args:
-            id (str, optional): ID do currículo Lattes (16 dígitos).
-            wsdl (str): URL do WSDL do serviço SOAP do CNPq.
-            auto_save_json_to_bd (bool): Se True, salva automaticamente o JSON no banco de dados.
-            path (str): Caminho base para salvar arquivos.
-            verbose (bool): Se True, imprime mensagens de log.
-            show_sql (bool): Se True, imprime comandos SQL executados.
-            connect_to_db (bool): Se True, conecta ao banco de dados.
-        """
+                 db_config_file=r'e:/Python/database.ini',
+                 use_soap=False): # Novo parâmetro de controle
+        
         self.auto_save_json_to_bd = auto_save_json_to_bd
         self.update_errors_on_bd = False
         self.nome = None
@@ -47,12 +38,14 @@ class Lattes:
         self.data_nascimento = None
         self.wsdl = wsdl
         self.db_config_file = db_config_file
+        
         if connect_to_db:
-            self.bd = extratorlattes.Database(show_sql=show_sql, config_file=self.db_config_file)
+            self.bd = Database(show_sql=show_sql, config_file=self.db_config_file)
             self.can_connect_db = self.bd.connected
         else:
             self.bd = None
             self.can_connect_db = False
+            
         self.path = path
         self.ocorrencia = None
         self.zip = None
@@ -63,9 +56,9 @@ class Lattes:
         self.data_atualizacao = None
         self.bd_data_atualizacao = None
         self.replace_file_in_disk = True
-        self.palavras_chave = []
-        self.dados_gerais = {
-            'id': None,
+        self.lattes_palavras_chave = []
+        self.lattes_dados_gerais = {
+            'id_lattes': None,
             'data_atualizacao': None,
             'nome_completo': None,
             'nomes_citacao': None,
@@ -95,11 +88,20 @@ class Lattes:
             'orcid': None,
             'pcd': None,
         }
-        self.wsdl_settings = zeep.Settings(xml_huge_tree=True)
-        self.client = zeep.Client(wsdl=self.wsdl, settings=self.wsdl_settings)
-        if id is not None:
-            self.id = self.set_id(id)
-            self.can_get_soap = self.check_if_can_get_soap()
+        
+        self.auto_save_zip_to_disk = False
+        self.client = None
+        self.can_get_soap = False
+
+        if use_soap:
+            self.wsdl_settings = zeep.Settings(xml_huge_tree=True)
+            self.client = zeep.Client(wsdl=self.wsdl, settings=self.wsdl_settings)
+            if id_lattes is not None:
+                self.id_lattes = self.set_id(id_lattes)
+                self.can_get_soap = self.check_if_can_get_soap()
+        else:
+            if id_lattes is not None:
+                self.id_lattes = self.set_id(id_lattes)
 
         
 
@@ -133,44 +135,44 @@ class Lattes:
 
 
     @staticmethod
-    def formata_num_processo (id):
+    def formata_num_processo (id_lattes):
         '''
-            Formata o id do Lattes para string.
-            :Param: id - o id do Lattes que everá ser definido.        
+            Formata o id_lattes do Lattes para string.
+            :Param: id_lattes - o id_lattes do Lattes que everá ser definido.        
         '''        
-        if id is None:
-            raise Exception("id must be provided")
+        if id_lattes is None:
+            raise Exception("id_lattes must be provided")
         else:
-            if isinstance(id, str):
-                if id.isnumeric() and len(id) <= 16:
-                    temp_id = id
+            if isinstance(id_lattes, str):
+                if id_lattes.isnumeric() and len(id_lattes) <= 16:
+                    temp_id = id_lattes
                 else:
                     raise Exception(
-                        "id must be an integer or a string with at most 16 numbers")
-            elif isinstance(id, int) and len(str(id))<=16:
-                temp_id = str(id)
+                        "id_lattes must be an integer or a string with at most 16 numbers")
+            elif isinstance(id_lattes, int) and len(str(id_lattes))<=16:
+                temp_id = str(id_lattes)
             else:
                 raise Exception(
-                    "id must be an integer or a string with at most 16 numbers")
+                    "id_lattes must be an integer or a string with at most 16 numbers")
         return temp_id.zfill(16)
 
 
-    def set_id(self, id):
+    def set_id(self, id_lattes):
         '''
-            Define o id do Lattes.
-            :Param: id - o id do Lattes que everá ser definido.        
+            Define o id_lattes do Lattes.
+            :Param: id_lattes - o id_lattes do Lattes que everá ser definido.        
         '''
-        temp_id = self.formata_num_processo(id)
-        self.id = temp_id
-        self.dados_gerais['id'] = self.id
-        return self.id
+        temp_id = self.formata_num_processo(id_lattes)
+        self.id_lattes = temp_id
+        self.lattes_dados_gerais['id_lattes'] = self.id_lattes
+        return self.id_lattes
 
 
     def get_ocorrencia_cv(self):
         '''
             Retorna o status: self.can_get_soap
         '''
-        self.ocorrencia = self.client.service.getOcorrenciaCV(self.id)
+        self.ocorrencia = self.client.service.getOcorrenciaCV(self.id_lattes)
         return self.ocorrencia
 
     def check_if_can_get_soap(self):
@@ -186,20 +188,22 @@ class Lattes:
             self.can_get_soap = True
         return self.can_get_soap
 
-    def get_zip_from_SOAP(self, set_auto_save=True, path=None):
+    def get_zip_from_SOAP(self, set_auto_save=None, path=None):
         '''
             Acessa o Extrator Lattes e baixa o currículo compactado.
-            Param id = None: se o id não for fornecido, usará o id da instância (self.id)
+            Param id_lattes = None: se o id_lattes não for fornecido, usará o id_lattes da instância (self.id_lattes)
             Param set_auto_save=True: Salva automaticamente o Lattes baixado no HD.
             Param path=self.path : pasta onde os arquivos serão salvos.
         '''
         if path is None:
             path = self.path
+        if set_auto_save is None:
+            set_auto_save = self.auto_save_zip_to_disk
         self.ocorrencia = None
         self.zip = None
         if self.verbose:
-            print('Pegando Lattes compactado {self.id} via SOAP')
-        self.zip = self.client.service.getCurriculoCompactado(self.id)
+            print('Pegando Lattes compactado {self.id_lattes} via SOAP')
+        self.zip = self.client.service.getCurriculoCompactado(self.id_lattes)
         if self.zip is not None:
             if self.verbose:
                 print('    Lattes compactado recuperado via SOAP. Verificando validade dos dados.')
@@ -234,12 +238,12 @@ class Lattes:
             #     self.insert_json()
         return self.ocorrencia
 
-    def get_atualizacao_SOAP(self, id=None):
+    def get_atualizacao_SOAP(self, id_lattes=None):
         """
         Consulta a data de atualização do currículo via serviço SOAP.
 
         Args:
-            id (str, optional): ID do currículo. Se None, usa o self.id.
+            id_lattes (str, optional): ID do currículo. Se None, usa o self.id_lattes.
 
         Returns:
             bool: True se conseguiu obter a data.
@@ -247,11 +251,11 @@ class Lattes:
         Raises:
             ValueError: Se o ID for inválido ou serviço negado.
         """
-        if id is not None:
-            self.id = self.set_id(id)
+        if id_lattes is not None:
+            self.id_lattes = self.set_id(id_lattes)
 
         self.data_atualizacao = self.client.service.getDataAtualizacaoCV(
-            self.id)
+            self.id_lattes)
         if self.data_atualizacao is None:
             raise ValueError('Invalid ID')
         elif isinstance(self.data_atualizacao, str) and '<MENSAGEM><ERRO>Serviço negado.' in self.data_atualizacao:
@@ -279,16 +283,16 @@ class Lattes:
         self.CPF = CPF
         self.nome = nome
         self.data_nascimento = data_nascimento
-        id = self.client.service.getIdentificadorCNPq(
+        id_lattes = self.client.service.getIdentificadorCNPq(
             self.CPF, self.nome, self.data_nascimento)
-        if id is None:
+        if id_lattes is None:
             raise ValueError('Invalid CPF, Name or DateBirth informed.')
-        elif isinstance(id, str) and '<MENSAGEM><ERRO>Serviço negado.' in id:
+        elif isinstance(id_lattes, str) and '<MENSAGEM><ERRO>Serviço negado.' in id_lattes:
             raise ValueError(
                 'Your IP does not have permission to download the Curriculum.')
-        self.id = self.set_id(id)
+        self.id_lattes = self.set_id(id_lattes)
         self.can_get_soap = True
-        return id
+        return id_lattes
 
 #  _____ _   _  _____ ___________ _____
 # |_   _| \ | |/  ___|  ___| ___ \_   _|
@@ -310,26 +314,26 @@ class Lattes:
         Insere o XML do currículo na tabela lattes_xml do banco de dados.
         """
         sql = """INSERT INTO lattes_xml (
-            id, xml)
+            id_lattes, xml)
             VALUES(%s, XMLPARSE(DOCUMENT %s)::xml)
-            ON CONFLICT (id)
+            ON CONFLICT (id_lattes)
             DO
             UPDATE SET
             xml = EXCLUDED.xml;
             """
-        data = (self.id, self.xml)
+        data = (self.id_lattes, self.xml)
         
         # CORREÇÃO: Usa self.bd diretamente, assumindo que foi injetado pelo script principal
         if self.bd and self.bd.connected:
             resultado = self.bd.execute(sql, data)
             # O log deve ser feito na mesma transação
-            self.bd.registrar_log(self.id, 'XML inserido/atualizado na tabela lattes_xml.')
+            self.bd.registrar_log(self.id_lattes, 'XML inserido/atualizado na tabela lattes_xml.')
             return resultado
         else:
             # Fallback para comportamento antigo (cria conexão se não existir)
-            with extratorlattes.Database(config_file=self.db_config_file) as db:
+            with Database(config_file=self.db_config_file) as db:
                 resultado = db.execute(sql, data)
-                db.registrar_log(self.id, 'XML inserido/atualizado na tabela lattes_xml.')
+                db.registrar_log(self.id_lattes, 'XML inserido/atualizado na tabela lattes_xml.')
                 return resultado
 
     def insert_json(self):
@@ -337,25 +341,25 @@ class Lattes:
         Insere o JSON do currículo na tabela lattes_json do banco de dados.
         """
         sql = """INSERT INTO lattes_json (
-            id, json)
+            id_lattes, json)
             VALUES(%s, %s::json)
-            ON CONFLICT (id)
+            ON CONFLICT (id_lattes)
             DO
             UPDATE SET
             json = EXCLUDED.json;
             """
-        data = (self.id, json.dumps(self.json))
+        data = (self.id_lattes, json.dumps(self.json))
         
         # CORREÇÃO: Usa self.bd diretamente
         if self.bd and self.bd.connected:
             resultado = self.bd.execute(sql, data)
-            self.bd.registrar_log(self.id, 'JSON inserido/atualizado na tabela lattes_json.')
+            self.bd.registrar_log(self.id_lattes, 'JSON inserido/atualizado na tabela lattes_json.')
             return resultado
         else:
             # Fallback
-            with extratorlattes.Database(config_file=self.db_config_file) as db:
+            with Database(config_file=self.db_config_file) as db:
                 resultado = db.execute(sql, data)
-                db.registrar_log(self.id, 'JSON inserido/atualizado na tabela lattes_json.')
+                db.registrar_log(self.id_lattes, 'JSON inserido/atualizado na tabela lattes_json.')
                 return resultado
 
 #  _____  _____ _____
@@ -382,10 +386,10 @@ class Lattes:
         """
 
         sql = """SELECT xml from lattes_xml
-        where id = %s;
+        where id_lattes = %s;
         """
-        data = (self.id,)
-        with extratorlattes.Database(config_file=self.db_config_file) as db:
+        data = (self.id_lattes,)
+        with Database(config_file=self.db_config_file) as db:
             resultado, _ = db.query(sql, data, many=False)
         if resultado is not None:
             self.xml = resultado[0]
@@ -401,10 +405,10 @@ class Lattes:
         """
 
         sql = """SELECT json from lattes_json
-        where id = %s;
+        where id_lattes = %s;
         """
-        data = (self.id,)
-        with extratorlattes.Database(config_file=self.db_config_file) as db:
+        data = (self.id_lattes,)
+        with Database(config_file=self.db_config_file) as db:
             resultado, _ = db.query(sql, data, many=False)
         if resultado is not None:
             self.json = resultado[0]
@@ -429,18 +433,18 @@ class Lattes:
 # YP      ~Y8888P' VP   V8P  `Y88P'    YP    Y888888P  `Y88P'  VP   V8P `8888Y'
 
 
-    def get_lattes(self, id=None):
+    def get_lattes(self, id_lattes=None):
         """
         Tenta carregar o currículo Lattes de várias fontes (disco, BD, SOAP).
 
         Args:
-            id (str, optional): ID do currículo.
+            id_lattes (str, optional): ID do currículo.
 
         Returns:
             bool: True se conseguiu carregar o currículo.
         """
-        if id is not None:
-            self.id = id
+        if id_lattes is not None:
+            self.id_lattes = id_lattes
         conseguiu = False
         conseguiu = self.read_zip_from_disk()
         if self.verbose:
@@ -463,27 +467,27 @@ class Lattes:
         return conseguiu
 
     @staticmethod
-    def get_saving_path(type, path, id, create_path_if_new=False):
+    def get_saving_path(type, path, id_lattes, create_path_if_new=False):
         """
         Gera o caminho completo para salvar arquivos do Lattes.
 
         Args:
             type (str): Tipo de arquivo ('zip', 'xml', 'json').
             path (str): Diretório base.
-            id (str): ID do Lattes.
+            id_lattes (str): ID do Lattes.
             create_path_if_new (bool): Se True, cria os diretórios se não existirem.
 
         Returns:
             str: Caminho completo do arquivo.
         """
-        id = str(id)
-        filename = "Lattes_" + str(id) + "." + type
+        id_lattes = str(id_lattes)
+        filename = "Lattes_" + str(id_lattes) + "." + type
         path_name = os.path.join(path, 'Lattes_' + type.upper())
         if type == "zip":
-            full_path = os.path.join(path_name, id[0], id[1])
+            full_path = os.path.join(path_name, id_lattes[0], id_lattes[1])
         else:
             full_path = os.path.join(
-                path_name, id[0], id[1], id[2], id[3], id[4])
+                path_name, id_lattes[0], id_lattes[1], id_lattes[2], id_lattes[3], id_lattes[4])
         if create_path_if_new:
             pathlib.Path(full_path).mkdir(parents=True, exist_ok=True)
         return os.path.join(full_path, filename)
@@ -504,7 +508,7 @@ class Lattes:
             path = self.path
         if filename is None:
             filename = Lattes.get_saving_path(
-                type="zip", path=path, id=self.id)
+                type="zip", path=path, id_lattes=self.id_lattes)
         try:
             with open(filename, 'rb') as f:
                 self.zip = f.read()
@@ -532,7 +536,7 @@ class Lattes:
         if path is None:
             path = self.path
         if filename is None:
-            filename = Lattes.get_saving_path("xml", path=path, id=self.id)
+            filename = Lattes.get_saving_path("xml", path=path, id_lattes=self.id_lattes)
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 self.xml = f.read()
@@ -557,7 +561,7 @@ class Lattes:
         if path is None:
             path = self.path
         if filename is None:
-            filename = Lattes.get_saving_path("JSON", path=path, id=self.id)
+            filename = Lattes.get_saving_path("JSON", path=path, id_lattes=self.id_lattes)
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 self.json = json.load(f)
@@ -607,7 +611,7 @@ class Lattes:
             path = self.path
         if filename is None:
             filename = Lattes.get_saving_path(
-                "xml", path=path, id=self.id, create_path_if_new=True)
+                "xml", path=path, id_lattes=self.id_lattes, create_path_if_new=True)
         if self.verbose:
             print(f'Salvando o arquivo {filename}.')
         if replace or not os.path.isfile(filename):
@@ -632,7 +636,7 @@ class Lattes:
             path = self.path
         if filename is None:
             filename = Lattes.get_saving_path(
-                "JSON", path=path, id=self.id, create_path_if_new=True)
+                "JSON", path=path, id_lattes=self.id_lattes, create_path_if_new=True)
         if replace or not os.path.isfile(filename):
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(self.json, f, indent=4)
@@ -657,7 +661,7 @@ class Lattes:
             path = self.path
         if filename is None:
             filename = Lattes.get_saving_path(
-                "zip", path=path, id=self.id, create_path_if_new=True)
+                "zip", path=path, id_lattes=self.id_lattes, create_path_if_new=True)
         if replace or not os.path.isfile(filename):
             with open(filename, 'wb') as f:
                 f.write(self.zip)
@@ -773,23 +777,23 @@ class Lattes:
         curriculo_vitae = self.json.get('CURRICULO-VITAE', {})
         numero_identificador = curriculo_vitae.get('@NUMERO-IDENTIFICADOR')
         if numero_identificador is not None and numero_identificador.isnumeric() and len(numero_identificador) == 16:
-            if self.id is None:
+            if self.id_lattes is None:
                 self.set_id(numero_identificador)
             else:
-                curr_id = self.id
+                curr_id = self.id_lattes
                 self.set_id(numero_identificador)
-                if not curr_id == self.id:
+                if not curr_id == self.id_lattes:
                     raise Exception(
                         'O ID do Currículo não corresponde ao ID informado.')
 
-        self.dados_gerais['id'] = self.id
+        self.lattes_dados_gerais['id_lattes'] = self.id_lattes
 
         data = curriculo_vitae.get('@DATA-ATUALIZACAO')
         hora = curriculo_vitae.get('@HORA-ATUALIZACAO')
         if data and hora:
-            self.dados_gerais['data_atualizacao'] = datetime.strptime(
+            self.lattes_dados_gerais['data_atualizacao'] = datetime.strptime(
                 data + hora, '%d%m%Y%H%M%S')
-            self.data_atualizacao = self.dados_gerais['data_atualizacao'].replace(
+            self.data_atualizacao = self.lattes_dados_gerais['data_atualizacao'].replace(
                 tzinfo=pytz.UTC)
 
     def _parse_date(self, date_str, fmt='%d/%m/%Y'):
@@ -803,7 +807,7 @@ class Lattes:
 
     def get_dados_gerais(self):
         """
-        Extrai os dados gerais do currículo a partir do JSON e os armazena no dicionário self.dados_gerais.
+        Extrai os dados gerais do currículo a partir do JSON e os armazena no dicionário self.lattes_dados_gerais.
         """
         if not self.json:
             if self.verbose:
@@ -815,66 +819,66 @@ class Lattes:
         dados_gerais_json = curriculo_vitae.get('DADOS-GERAIS', {})
 
         # Extraindo os dados usando .get() para evitar KeyErrors
-        self.dados_gerais['nome_completo'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['nome_completo'] = dados_gerais_json.get(
             '@NOME-COMPLETO')
-        self.dados_gerais['nomes_citacao'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['nomes_citacao'] = dados_gerais_json.get(
             '@NOME-EM-CITACOES-BIBLIOGRAFICAS')
-        self.dados_gerais['nacionalidade'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['nacionalidade'] = dados_gerais_json.get(
             '@NACIONALIDADE')
-        self.dados_gerais['cpf'] = dados_gerais_json.get('@CPF')
-        self.dados_gerais['pais_nascimento'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['cpf'] = dados_gerais_json.get('@CPF')
+        self.lattes_dados_gerais['pais_nascimento'] = dados_gerais_json.get(
             '@PAIS-DE-NASCIMENTO')
-        self.dados_gerais['uf_nascimento'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['uf_nascimento'] = dados_gerais_json.get(
             '@UF-NASCIMENTO')
-        self.dados_gerais['cidade_nascimento'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['cidade_nascimento'] = dados_gerais_json.get(
             '@CIDADE-NASCIMENTO')
-        self.dados_gerais['data_nascimento'] = self._parse_date(
+        self.lattes_dados_gerais['data_nascimento'] = self._parse_date(
             dados_gerais_json.get('@DATA-NASCIMENTO'))
-        self.dados_gerais['sexo'] = dados_gerais_json.get('@SEXO')
-        self.dados_gerais['numero_identidade'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['sexo'] = dados_gerais_json.get('@SEXO')
+        self.lattes_dados_gerais['numero_identidade'] = dados_gerais_json.get(
             '@NUMERO-IDENTIDADE')
-        self.dados_gerais['orgao_emissor_identidade'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['orgao_emissor_identidade'] = dados_gerais_json.get(
             '@ORGAO-EMISSOR')
-        self.dados_gerais['uf_orgao_emissor_identidade'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['uf_orgao_emissor_identidade'] = dados_gerais_json.get(
             '@UF-ORGAO-EMISSOR')
-        self.dados_gerais['data_emissao_identidade'] = self._parse_date(
+        self.lattes_dados_gerais['data_emissao_identidade'] = self._parse_date(
             dados_gerais_json.get('@DATA-DE-EMISSAO'))
-        self.dados_gerais['numero_passaporte'] = dados_gerais_json.get(
+        self.lattes_dados_gerais['numero_passaporte'] = dados_gerais_json.get(
             '@NUMERO-DO-PASSAPORTE')
-        self.dados_gerais['nome_pai'] = dados_gerais_json.get('@NOME-DO-PAI')
-        self.dados_gerais['nome_mae'] = dados_gerais_json.get('@NOME-DA-MAE')
+        self.lattes_dados_gerais['nome_pai'] = dados_gerais_json.get('@NOME-DO-PAI')
+        self.lattes_dados_gerais['nome_mae'] = dados_gerais_json.get('@NOME-DA-MAE')
         perm_div = dados_gerais_json.get('@PERMISSAO-DE-DIVULGACAO')
-        self.dados_gerais['permissao_divulgacao'] = (perm_div.upper() == 'SIM') if perm_div else None
-        self.dados_gerais['data_falecimento'] = self._parse_date(
+        self.lattes_dados_gerais['permissao_divulgacao'] = (perm_div.upper() == 'SIM') if perm_div else None
+        self.lattes_dados_gerais['data_falecimento'] = self._parse_date(
             dados_gerais_json.get('@DATA-FALECIMENTO'))
-        self.dados_gerais['raca_cor'] = dados_gerais_json.get('@RACA-OU-COR')
-        self.dados_gerais['sigla_pais_nacionalidade'] = dados_gerais_json.get('@SIGLA-PAIS-NACIONALIDADE')
-        self.dados_gerais['pais_nacionalidade'] = dados_gerais_json.get('@PAIS-DE-NACIONALIDADE')
-        self.dados_gerais['orcid'] = dados_gerais_json.get('@ORCID-ID')
+        self.lattes_dados_gerais['raca_cor'] = dados_gerais_json.get('@RACA-OU-COR')
+        self.lattes_dados_gerais['sigla_pais_nacionalidade'] = dados_gerais_json.get('@SIGLA-PAIS-NACIONALIDADE')
+        self.lattes_dados_gerais['pais_nacionalidade'] = dados_gerais_json.get('@PAIS-DE-NACIONALIDADE')
+        self.lattes_dados_gerais['orcid'] = dados_gerais_json.get('@ORCID-ID')
         pcd_val = dados_gerais_json.get('@PCD')
-        self.dados_gerais['pcd'] = (pcd_val.upper() == 'SIM') if pcd_val else None
+        self.lattes_dados_gerais['pcd'] = (pcd_val.upper() == 'SIM') if pcd_val else None
 
         # Elementos aninhados
         resumo_cv = dados_gerais_json.get('RESUMO-CV', {})
         if resumo_cv:
-            self.dados_gerais['resumo_cv_rh'] = resumo_cv.get(
+            self.lattes_dados_gerais['resumo_cv_rh'] = resumo_cv.get(
                 '@TEXTO-RESUMO-CV-RH')
-            self.dados_gerais['resumo_cv_rh_en'] = resumo_cv.get(
+            self.lattes_dados_gerais['resumo_cv_rh_en'] = resumo_cv.get(
                 '@TEXTO-RESUMO-CV-RH-EN')
         endereco = dados_gerais_json.get('ENDERECO')
         if endereco:
-            self.dados_gerais['email'] = endereco.get('@ELETRONICO')
+            self.lattes_dados_gerais['email'] = endereco.get('@ELETRONICO')
 
         outras_info = dados_gerais_json.get(
             'OUTRAS-INFORMACOES-RELEVANTES', {})
         if outras_info:
-            self.dados_gerais['outras_informacoes_relevantes'] = outras_info.get(
+            self.lattes_dados_gerais['outras_informacoes_relevantes'] = outras_info.get(
                 '@OUTRAS-INFORMACOES-RELEVANTES')
 
         if self.verbose:
             print("Dados gerais extraídos com sucesso.")
 
-        return self.dados_gerais
+        return self.lattes_dados_gerais
 
     def get_enderecos(self):
         """
@@ -889,11 +893,11 @@ class Lattes:
             return None
 
         enderecos_formatados = []
-        dados_gerais = self.json.get('CURRICULO-VITAE', {}).get('DADOS-GERAIS', {})
-        if not dados_gerais:
+        lattes_dados_gerais = self.json.get('CURRICULO-VITAE', {}).get('DADOS-GERAIS', {})
+        if not lattes_dados_gerais:
             return []
 
-        endereco_container = dados_gerais.get('ENDERECO', {})
+        endereco_container = lattes_dados_gerais.get('ENDERECO', {})
         if not endereco_container:
             return []
 
@@ -917,7 +921,7 @@ class Lattes:
             for endereco_individual in lista_blocos:
                 if not isinstance(endereco_individual, dict):
                     continue
-                dados_endereco = {'id_lattes': self.id, 'tipo_endereco': tipo_endereco}
+                dados_endereco = {'id_lattes': self.id_lattes, 'tipo_endereco': tipo_endereco}
                 for chave, valor in endereco_individual.items():
                     chave_limpa = chave.lstrip('@').lower()
                     dados_endereco[chave_limpa] = valor
@@ -932,7 +936,7 @@ class Lattes:
         estruturando os dados em um formato relacional, similar a um banco de dados.
 
         Retorna um dicionário onde cada chave é uma "tabela" (ex: 'atuacoes_profissionais',
-        'vinculos') e cada valor é uma lista de dicionários (os "registros").
+        'lattes_vinculos') e cada valor é uma lista de dicionários (os "registros").
         """
         if self.json is None:
             if self.verbose:
@@ -942,7 +946,7 @@ class Lattes:
         # Estrutura para armazenar os dados extraídos em formato de "tabelas"
         dados_extraidos = {
             "atuacoes_profissionais": [],
-            "vinculos": [],
+            "lattes_vinculos": [],
             "atuacao_areas_conhecimento": [],
             "atuacao_palavras_chave": [],
             "atuacao_setores_atividade": [],
@@ -971,13 +975,13 @@ class Lattes:
             def _processar_item_aninhado(item_dict, tabela_destino):
                 if not isinstance(item_dict, dict): return
                 dados = {k.lstrip('@').lower().replace('-', '_'): v for k, v in item_dict.items()}
-                dados['id_lattes'] = self.id
+                dados['id_lattes'] = self.id_lattes
                 dados['codigo_instituicao_empresa'] = codigo_instituicao
                 tabela_destino.append(dados)
 
             # 1. Processar a atuação principal (campos de primeiro nível)
             dados_atuacao_principal = {k.lstrip('@').lower().replace('-', '_'): v for k, v in atuacao_raw.items() if isinstance(v, str)}
-            dados_atuacao_principal['id_lattes'] = self.id
+            dados_atuacao_principal['id_lattes'] = self.id_lattes
             dados_extraidos['atuacoes_profissionais'].append(dados_atuacao_principal)
 
             # 2. Processar Vínculos
@@ -985,7 +989,7 @@ class Lattes:
             lista_vinculos = vinculos_container.get('VINCULO', [])
             if isinstance(lista_vinculos, dict): lista_vinculos = [lista_vinculos]
             for vinculo in lista_vinculos:
-                _processar_item_aninhado(vinculo, dados_extraidos['vinculos'])
+                _processar_item_aninhado(vinculo, dados_extraidos['lattes_vinculos'])
 
             # 3. Processar Atividades
             mapa_atividades = {
@@ -1020,7 +1024,7 @@ class Lattes:
                 for _, valor_item in container.items():
                     if valor_item:
                         dados_item = {
-                            'id_lattes': self.id,
+                            'id_lattes': self.id_lattes,
                             'codigo_instituicao_empresa': codigo_instituicao,
                             nome_campo: valor_item
                         }
@@ -1069,7 +1073,7 @@ class Lattes:
                 if not isinstance(item_raw, dict):
                     continue
 
-                dados_publicacao = {'id_lattes': self.id}
+                dados_publicacao = {'id_lattes': self.id_lattes}
                 autores_list = []
 
                 # Itera sobre as partes da publicação (DADOS-BASICOS, DETALHAMENTO, AUTORES, etc.)
@@ -1141,7 +1145,7 @@ class Lattes:
             for item in lista_itens:
                 if isinstance(item, dict):
                     dados_item = {k.lstrip('@').lower().replace('-', '_'): v for k, v in item.items()}
-                    dados_item['id_lattes'] = self.id
+                    dados_item['id_lattes'] = self.id_lattes
                     dados_item['nivel'] = nivel_formacao
                     dados_extraidos["formacao"].append(dados_item)
         
@@ -1188,7 +1192,7 @@ class Lattes:
             for item_raw in lista_itens:
                 if not isinstance(item_raw, dict): continue
                 
-                dados_item = {'id_lattes': self.id, 'autores': []}
+                dados_item = {'id_lattes': self.id_lattes, 'autores': []}
                 for part_key, part_value in item_raw.items():
                     if part_key == 'AUTORES':
                         lista_autores_raw = part_value if isinstance(part_value, list) else [part_value]
@@ -1236,7 +1240,7 @@ class Lattes:
                     for item_raw in lista_itens:
                         if not isinstance(item_raw, dict): continue
                         
-                        dados_item = {'id_lattes': self.id, 'status': status, 'nivel': nivel}
+                        dados_item = {'id_lattes': self.id_lattes, 'status': status, 'nivel': nivel}
                         for part_key, part_value in item_raw.items():
                             if isinstance(part_value, dict):
                                 for attr_key, attr_value in part_value.items():
@@ -1278,7 +1282,7 @@ class Lattes:
             for item_raw in lista_itens:
                 if not isinstance(item_raw, dict): continue
                 
-                dados_item = {'id_lattes': self.id, 'tipo': chave_json}
+                dados_item = {'id_lattes': self.id_lattes, 'tipo': chave_json}
                 for part_key, part_value in item_raw.items():
                     if isinstance(part_value, dict):
                         for attr_key, attr_value in part_value.items():
@@ -1329,7 +1333,7 @@ class Lattes:
         for item in lista_itens:
             if isinstance(item, dict):
                 dados_item = {k.lstrip('@').lower().replace('-', '_'): v for k, v in item.items()}
-                dados_item['id_lattes'] = self.id
+                dados_item['id_lattes'] = self.id_lattes
                 dados_extraidos["premios_titulos"].append(dados_item)
         return dados_extraidos
 
@@ -1346,7 +1350,7 @@ class Lattes:
         for item in lista_itens:
             if isinstance(item, dict):
                 dados_item = {k.lstrip('@').lower().replace('-', '_'): v for k, v in item.items()}
-                dados_item['id_lattes'] = self.id
+                dados_item['id_lattes'] = self.id_lattes
                 dados_extraidos["idiomas"].append(dados_item)
         return dados_extraidos
         
@@ -1358,7 +1362,7 @@ class Lattes:
         O DataFrame resultante é armazenado em self.df.
 
         O DataFrame terá as seguintes colunas:
-        - id: O ID Lattes do currículo.
+        - id_lattes: O ID Lattes do currículo.
         - path: O caminho JSON para o elemento, como uma string.
         - key: A chave do elemento.
         - value: O valor do elemento.
@@ -1411,7 +1415,7 @@ class Lattes:
             # Pivotar para transformar as chaves (propriedades) em colunas.
             # O 'element_path' identifica unicamente cada objeto.
             pivoted_props = df_properties.pivot_table(
-                index=['id', 'element_path'],
+                index=['id_lattes', 'element_path'],
                 columns='key',
                 values='value',
                 aggfunc='first'
@@ -1424,9 +1428,9 @@ class Lattes:
         if not df_list_items.empty:
             # Para itens de lista, cada item já é um elemento. O 'path' completo o identifica.
             # Apenas renomeamos a coluna 'value' para um nome genérico e selecionamos as colunas.
-            df_list_items = df_list_items.rename(columns={'value': 'value_item'})[['id', 'path', 'value_item']]
+            df_list_items = df_list_items.rename(columns={'value': 'value_item'})[['id_lattes', 'path', 'value_item']]
 
-        # --- 3. Combina os resultados ---
+        # --- 3. Combina os llm_resultados ---
         if not pivoted_props.empty:
             final_df = pivoted_props
         elif not df_list_items.empty:
@@ -1450,14 +1454,14 @@ class Lattes:
                 if isinstance(value, (dict, OrderedDict, list)):
                     self._flatten_json_recursive(value, new_path, rows_list)
                 else:
-                    rows_list.append({'id': self.id, 'path': ' -> '.join(map(str, new_path)), 'key': key, 'value': value})
+                    rows_list.append({'id_lattes': self.id_lattes, 'path': ' -> '.join(map(str, new_path)), 'key': key, 'value': value})
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 new_path = path + [str(i)]
                 if isinstance(item, (dict, OrderedDict, list)):
                     self._flatten_json_recursive(item, new_path, rows_list)
                 else:
-                    rows_list.append({'id': self.id, 'path': ' -> '.join(map(str, new_path)), 'key': i, 'value': item})
+                    rows_list.append({'id_lattes': self.id_lattes, 'path': ' -> '.join(map(str, new_path)), 'key': i, 'value': item})
 
     def pega_dados_lattes(self):
         """
@@ -1468,11 +1472,11 @@ class Lattes:
             self.get_xml()
         self.get_dados_gerais()
         self.dados_completos = {
-            "dados_gerais": self.dados_gerais,
+            "lattes_dados_gerais": self.lattes_dados_gerais,
             "enderecos": self.get_enderecos(),
             "formacao_academica": self.pega_formacao_academica(),
             "formacao_profissional": self.pega_formacao_profissional(),
-            "publicacoes": self.pega_publicacoes(),
+            "lattes_publicacoes": self.pega_publicacoes(),
             "producao_tecnica": self.pega_producao_tecnica(),
             "orientacoes": self.pega_orientacoes(),
             "bancas": self.pega_participacao_bancas(),

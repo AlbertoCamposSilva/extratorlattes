@@ -229,7 +229,7 @@ class Database:
             Insere um registro de log com o ID do Lattes, o Timestamp atual e o status.
             """
             sql = """
-                INSERT INTO log_processamento_lattes (id_lattes, data_hora, status) 
+                INSERT INTO lattes_log_processamento (id_lattes, data_hora, status) 
                 VALUES (%s, NOW(), %s)
             """
             # Converte para string para garantir compatibilidade com text
@@ -237,7 +237,7 @@ class Database:
 
     def query(self, sql, params=None, many=True):
         """
-        Executa uma consulta SQL e retorna os resultados.
+        Executa uma consulta SQL e retorna os llm_resultados.
 
         Args:
             sql (str): Consulta SQL.
@@ -285,19 +285,19 @@ class Database:
         '''
 Insere uma lista contendo dicionários na tabela.
     Exemplo de uso:
-        db.insert_list_of_dicts (table_name = 'indicadores',
-            list_of_dicts = ind.indicadores, 
-            id_columns = ['id', 'ano', 'tipo'])
+        db.insert_list_of_dicts (table_name = 'lattes_indicadores',
+            list_of_dicts = ind.lattes_indicadores, 
+            id_columns = ['id_lattes', 'ano', 'tipo'])
 Os parâmetros são:
 table_name: nome da tebela no banco de dados. Exemplo: 
-    indicadores
+    lattes_indicadores
 list_of_dicts: Uma lista de dicionários a serem inseridos. Exemplo: 
-    ind.indicadores
+    ind.lattes_indicadores
 id_columns: Uma lista indicando quais colunas são índices. 
 Mesmo se houver apenas um índice, deve ser uma lista. 
     Exemplo: 
-        ['id', 'ano', 'tipo']
-        ['id']
+        ['id_lattes', 'ano', 'tipo']
+        ['id_lattes']
         []
 
 Não esquecer que show_sql e on_conflic_update pode ser alterado.
@@ -316,7 +316,7 @@ Não esquecer que show_sql e on_conflic_update pode ser alterado.
 O retorno é uma lista contendo as chaves inseridas. 
     Útil para:
         len(retorno) dá a quantidade de linhas inseridas
-        retorno para saber um novo id criado numa columa serial (que incrementa automaticamente)
+        retorno para saber um novo id_lattes criado numa columa serial (que incrementa automaticamente)
 
         '''
         if not list_of_dicts:
@@ -411,29 +411,29 @@ on_conflict_do_nothing: Se False -> quando houver conflito nas chaves acima menc
         drop = ''
         if drop_if_exists:
             drop = '''
-DROP TABLE IF EXISTS indicadores;
+DROP TABLE IF EXISTS lattes_indicadores;
 DROP TABLE IF EXISTS indicadores_nomes;
 DROP TABLE IF EXISTS all_lattes;
-drop table IF EXISTS lista_indicadores;
-DROP TABLE IF EXISTS palavras_chave;
-DROP TABLE IF EXISTS areas_conhecimento;
-DROP TABLE IF EXISTS publicacoes;
-DROP TABLE IF EXISTS vinculos;
-DROP TABLE IF EXISTS dados_gerais;
+drop table IF EXISTS lattes_lista_indicadores;
+DROP TABLE IF EXISTS lattes_palavras_chave;
+DROP TABLE IF EXISTS lattes_areas_conhecimento;
+DROP TABLE IF EXISTS lattes_publicacoes;
+DROP TABLE IF EXISTS lattes_vinculos;
+DROP TABLE IF EXISTS lattes_dados_gerais;
 '''
 
         sql = f'''
-        -- Table: indicadores
+        -- Table: lattes_indicadores
 
         {drop}
 
-        CREATE TABLE IF NOT EXISTS indicadores
+        CREATE TABLE IF NOT EXISTS lattes_indicadores
         (
-            id text NOT NULL,
+            id_lattes text NOT NULL,
             ano smallint NOT NULL,
             tipo smallint NOT NULL,
             qty smallint NOT NULL,
-            CONSTRAINT indicadores_pkey PRIMARY KEY (id, ano, tipo)
+            CONSTRAINT indicadores_pkey PRIMARY KEY (id_lattes, ano, tipo)
         )
 
         TABLESPACE pg_default;
@@ -455,14 +455,14 @@ DROP TABLE IF EXISTS dados_gerais;
 
         CREATE TABLE IF NOT EXISTS all_lattes
         (
-            id text NOT NULL,
+            id_lattes text NOT NULL,
             sgl_pais text COLLATE pg_catalog."default",
             dt_atualizacao date,
             cod_area integer,
             cod_nivel integer,
             dta_carga date,
             erro varcha(15),
-            CONSTRAINT all_lattes_pkey PRIMARY KEY (id)
+            CONSTRAINT all_lattes_pkey PRIMARY KEY (id_lattes)
         )
 
         TABLESPACE pg_default;
@@ -473,7 +473,7 @@ DROP TABLE IF EXISTS dados_gerais;
         CREATE INDEX IF NOT EXISTS all_lattes_dt_atualizacao
             ON all_lattes USING btree
             (dt_atualizacao ASC NULLS LAST)
-            INCLUDE(id)
+            INCLUDE(id_lattes)
             TABLESPACE pg_default;
         -- Index: all_lattes_id
 
@@ -482,10 +482,10 @@ DROP TABLE IF EXISTS dados_gerais;
         CREATE INDEX IF NOT EXISTS all_lattes_id
             ON all_lattes USING btree
             (dt_atualizacao ASC NULLS LAST)
-            INCLUDE(id)
+            INCLUDE(id_lattes)
             TABLESPACE pg_default;
 
-        CREATE TABLE IF NOT EXISTS lista_indicadores
+        CREATE TABLE IF NOT EXISTS lattes_lista_indicadores
         (
             nome_indicador varchar not null
                 constraint lista_indicadores_pk
@@ -493,33 +493,33 @@ DROP TABLE IF EXISTS dados_gerais;
             id             integer generated always as identity
         );
 
-        CREATE TABLE IF NOT EXISTS palavras_chave
+        CREATE TABLE IF NOT EXISTS lattes_palavras_chave
         (
-            id      text,
+            id_lattes      text,
             palavra varchar
         );
 
-        CREATE TABLE IF NOT EXISTS areas_conhecimento
+        CREATE TABLE IF NOT EXISTS lattes_areas_conhecimento
         (
             id   text not null,
             tipo varchar,
             area varchar
         );
 
-        CREATE TABLE IF NOT EXISTS log_processamento_lattes (
+        CREATE TABLE IF NOT EXISTS lattes_log_processamento (
             id_lattes BIGINT NOT NULL,
             data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             status TEXT NOT NULL,
             PRIMARY KEY (id_lattes, data_hora)
         );
 
-        alter table areas_conhecimento
+        alter table lattes_areas_conhecimento
             add constraint areas_conhecimento_pk
                 unique (id, tipo, area);
 
-        CREATE TABLE IF NOT EXISTS publicacoes
+        CREATE TABLE IF NOT EXISTS lattes_publicacoes
         (
-            id       text not null,
+            id_lattes       text not null,
             tipo     varchar,
             titulo   varchar,
             doi      varchar,
@@ -528,9 +528,9 @@ DROP TABLE IF EXISTS dados_gerais;
             natureza varchar
         );
 
-        CREATE TABLE IF NOT EXISTS vinculos
+        CREATE TABLE IF NOT EXISTS lattes_vinculos
         (
-            id            text not null,
+            id_lattes            text not null,
             instituicao   varchar,
             num_anos      integer,
             atual         boolean,
@@ -538,8 +538,8 @@ DROP TABLE IF EXISTS dados_gerais;
             tipo          varchar
         );
 
-        CREATE TABLE IF NOT EXISTS dados_gerais (
-            id text PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS lattes_dados_gerais (
+            id_lattes text PRIMARY KEY,
             data_atualizacao TIMESTAMP,
             nome_completo VARCHAR,
             nomes_citacao VARCHAR,
@@ -570,17 +570,17 @@ DROP TABLE IF EXISTS dados_gerais;
             pcd BOOLEAN
         );
             
-        COMMENT ON TABLE dados_gerais IS 'Armazena os dados gerais e cadastrais dos currículos Lattes.';
-        COMMENT ON COLUMN dados_gerais.id IS 'Identificador único do Lattes (16 caracteres), chave primária.';
-        COMMENT ON COLUMN dados_gerais.data_atualizacao IS 'Data e hora da última atualização do currículo na plataforma Lattes.';
-        COMMENT ON COLUMN dados_gerais.nome_completo IS 'Nome completo do titular do currículo.';
-        COMMENT ON COLUMN dados_gerais.nomes_citacao IS 'Nomes utilizados em citações bibliográficas, separados por ponto e vírgula.';
-        COMMENT ON COLUMN dados_gerais.cpf IS 'Cadastro de Pessoas Físicas (CPF) do titular.';
-        COMMENT ON COLUMN dados_gerais.pcd IS 'Indica se a pessoa tem alguma deficiência (Pessoa com Deficiência).';
+        COMMENT ON TABLE lattes_dados_gerais IS 'Armazena os dados gerais e cadastrais dos currículos Lattes.';
+        COMMENT ON COLUMN lattes_dados_gerais.id_lattes IS 'Identificador único do Lattes (16 caracteres), chave primária.';
+        COMMENT ON COLUMN lattes_dados_gerais.data_atualizacao IS 'Data e hora da última atualização do currículo na plataforma Lattes.';
+        COMMENT ON COLUMN lattes_dados_gerais.nome_completo IS 'Nome completo do titular do currículo.';
+        COMMENT ON COLUMN lattes_dados_gerais.nomes_citacao IS 'Nomes utilizados em citações bibliográficas, separados por ponto e vírgula.';
+        COMMENT ON COLUMN lattes_dados_gerais.cpf IS 'Cadastro de Pessoas Físicas (CPF) do titular.';
+        COMMENT ON COLUMN lattes_dados_gerais.pcd IS 'Indica se a pessoa tem alguma deficiência (Pessoa com Deficiência).';
 
         create table lattes_xml
             (
-                id  text not null
+                id_lattes  text not null
                     primary key,
                 xml xml      not null
             );
@@ -616,7 +616,7 @@ DROP TABLE IF EXISTS dados_gerais;
             AND    table_name   = '{table_name}'
             );
             '''
-        return self.query(sql)[0][0]
+        return self.query(sql, many=False)[0][0]
 
 
     def upsert_dataframe(self, df: pd.DataFrame, table_name: str, primary_key_col: str, verbose: bool = True):
@@ -706,7 +706,7 @@ DROP TABLE IF EXISTS dados_gerais;
             str: O valor do atributo ou None se não existir.
         """
         # O operador #>> extrai texto de um caminho JSON especificado por um array de texto postgres
-        sql = "SELECT json #>> %s FROM lattes_json WHERE id = %s"
+        sql = "SELECT json #>> %s FROM lattes_json WHERE id_lattes = %s"
         
         # Passamos path_list direto; o adaptador psycopg2 converterá para ARRAY[] do Postgres
         rows, _ = self.query(sql, (path_list, str(id_lattes)), many=False)
@@ -730,7 +730,7 @@ DROP TABLE IF EXISTS dados_gerais;
             SELECT {cols}
             FROM lattes_json,
             LATERAL jsonb_array_or_object_elements(json -> {json_path_to_array}) AS elem
-            WHERE id = %s
+            WHERE id_lattes = %s
         """
         
         # O método query da sua classe já lida com a execução e retorno
