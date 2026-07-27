@@ -9,7 +9,7 @@ from extratorlattes.indicadores import Indicadores
 def main():
     id_lattes = "8721994758453503"
     print(f"Baixando e atualizando CV {id_lattes}...")
-    lattes = LattesDownloader(id_lattes=id_lattes)
+    lattes = LattesDownloader(id_lattes=id_lattes, verbose=True)
     res_zip = lattes.get_zip_from_REST()
     print("Resultado do download:", res_zip)
     
