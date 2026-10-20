@@ -72,7 +72,7 @@ def main():
             
         pbar.set_postfix(id=id_lattes, status="Baixando...", termino=data_termino)
         try:
-            # 1. Recupera o ZIP via REST (utiliza cookie logado de database.ini ou faz o relogin se necessário)
+            # 1. Recupera o ZIP via REST (utiliza o cookie do cache local da sessão ou faz o relogin se necessário)
             downloader.id_lattes = id_lattes
             status = downloader.get_zip_from_REST()
             

@@ -26,6 +26,8 @@ dependencies = [
     "xmltodict",
     "beautifulsoup4",
     "pytz",
+    "acs-toolbox[all]>=0.1.1",
+    "webdriver-manager",
 ]
 
 [tool.setuptools.packages.find]

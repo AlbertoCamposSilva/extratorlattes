@@ -3,15 +3,17 @@
 import requests
 import os
 import json
-from configparser import ConfigParser
 from urllib.parse import urlparse, parse_qs
+import time
+from datetime import datetime, timedelta
 from extratorlattes.lattes import Lattes
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from acs_toolbox.segredos import get_secret
+from extratorlattes.sessao_cache import SessaoCache
 
 #%% Código da classe LattesDownloader
 
@@ -21,23 +23,31 @@ class LattesDownloader(Lattes):
     utilizada como alternativa ao serviço SOAP (WSCurriculo).
     """
 
-    def __init__(self, selenium_cookies=None, user_agent=None, *args, **kwargs):
+    _ultima_falha_login = None
+    _cooldown_login_segundos = 7200  # 2 horas de cooldown após falha
+
+    def __init__(self, selenium_cookies=None, user_agent=None, modo_versao='fallback_publico', *args,
+                 sessao_id=None, **kwargs):
+        # sessao_id: identifica o cache local de cookies (um por sessão; ver extratorlattes.sessao_cache).
+        # Sem sessao_id, cada instância tem cache próprio; passe o mesmo id para reaproveitar uma sessão
+        # (ex.: sessao_id="interativa" após capturar_sessao_interativa()).
         # Inicializa a classe base (Lattes) com todos os parâmetros originais
         super().__init__(*args, **kwargs)
+        self.modo_versao = modo_versao
         self.session = requests.Session()
-        
+
 # Configura retentativas customizadas com base 4 (4s, 16s, 64s)
         class PowerOfFourRetry(Retry):
             def get_backoff_time(self):
                 consecutive_errors_len = len(self.history)
                 if consecutive_errors_len == 0:
                     return 0
-                
+
                 # Para consecutive_errors_len = 1 (primeira falha/1ª retentativa), será 4**1 = 4s
                 # Para consecutive_errors_len = 2 (segunda falha/2ª retentativa), será 4**2 = 16s
                 # Para consecutive_errors_len = 3 (terceira falha/3ª retentativa), será 4**3 = 64s
                 backoff_value = 4 ** consecutive_errors_len
-                return min(120, backoff_value) # Limite máximo de 120 segundos
+                return min(600, backoff_value) # Limite máximo de 600 segundos
 
         retry_strategy = PowerOfFourRetry(
             total=3,
@@ -47,25 +57,21 @@ class LattesDownloader(Lattes):
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
-        
+
         if self.verbose:
             print("[LattesDownloader] Inicializando sessão HTTP e configurando política de retentativas (PowerOfFourRetry)...")
 
-        # Carrega dados do arquivo INI automaticamente se os parâmetros não forem fornecidos
-        config_file = r'e:/Python/database.ini'
-        if (selenium_cookies is None or user_agent is None) and os.path.exists(config_file):
-            if self.verbose:
-                print(f"[LattesDownloader] Carregando User-Agent e cookies de sessão a partir do arquivo '{config_file}'...")
-            parser = ConfigParser()
-            parser.read(config_file, encoding='utf-8')
-            if parser.has_section('lattesweb'):
-                if user_agent is None and parser.has_option('lattesweb', 'user_agent'):
-                    user_agent = parser.get('lattesweb', 'user_agent')
-                if selenium_cookies is None and parser.has_option('lattesweb', 'cookies'):
-                    try:
-                        selenium_cookies = json.loads(parser.get('lattesweb', 'cookies'))
-                    except json.JSONDecodeError:
-                        pass
+        # Cache local e temporário da sessão (cookies/User-Agent), válido por até 24 h
+        SessaoCache.limpar_vencidos()
+        self.sessao_cache = SessaoCache(sessao_id)
+        if selenium_cookies is None or user_agent is None:
+            cache = self.sessao_cache.carregar()
+            if cache:
+                if self.verbose:
+                    print(f"[LattesDownloader] Reutilizando sessão em cache '{self.sessao_cache.sessao_id}'...")
+                user_agent = user_agent or cache.get("user_agent")
+                if selenium_cookies is None:
+                    selenium_cookies = cache.get("cookies")
 
         # Define o User-Agent idêntico ao do navegador que fez o login
         if user_agent:
@@ -84,27 +90,25 @@ class LattesDownloader(Lattes):
             "Referer": "http://buscacv.cnpq.br/buscacv/"
         })
 
-        # Tenta carregar as credenciais do .env para login interno silencioso
-        env_path = r"E:\OneDrive - CNPq\Python\.env"
+        # Credenciais para login interno silencioso (cofre de segredos, via acs_toolbox)
         if self.verbose:
-            print(f"[LattesDownloader] Verificando credenciais de acesso interno no arquivo '{env_path}'...")
-        load_dotenv(env_path)
-        self.intranet_login = os.getenv("INTRANET-LOGIN")
-        self.intranet_senha = os.getenv("INTRANET-SENHA")
+            print("[LattesDownloader] Verificando credenciais de acesso interno no cofre de segredos...")
+        self.intranet_login = get_secret("INTRANET-LOGIN", default=None) or get_secret("SEI_USER", default=None) or get_secret("CPF", default=None)
+        self.intranet_senha = get_secret("INTRANET-SENHA", default=None) or get_secret("CNPQ", default=None)
 
         if self.verbose:
             if self.intranet_login and self.intranet_senha:
                 print("[LattesDownloader] Credenciais INTRANET-LOGIN/SENHA carregadas com sucesso.")
             else:
-                print("[LattesDownloader] Aviso: Credenciais INTRANET não encontradas no .env (login interno ficará indisponível).")
+                print("[LattesDownloader] Aviso: Credenciais INTRANET não encontradas no cofre de segredos (login interno ficará indisponível).")
 
         if selenium_cookies:
             if self.verbose:
                 print(f"[LattesDownloader] Injetando {len(selenium_cookies)} cookies de sessão na instância Requests...")
             self.set_cookies_from_selenium(selenium_cookies)
 
-    def _realizar_login_interno(self, user_id, password):
-        """Autentica no Lattes Interno via REST para liberar o download da versão completa."""
+    def _realizar_login_interno(self, user_id, password, max_tentativas=2):
+        """Autentica no Lattes Interno via REST para liberar o download da versão completa (duas tentativas, timeout 600s)."""
         url_base = "http://buscacv.cnpq.br/buscacv/"
         url_auth = "http://buscacv.cnpq.br/buscacv/rest/authenticate"
         payload = {"userId": user_id, "password": password}
@@ -115,57 +119,45 @@ class LattesDownloader(Lattes):
             "Origin": "http://buscacv.cnpq.br",
             "X-Requested-With": "XMLHttpRequest"
         }
-        try:
-            # 1. Faz um GET inicial para adquirir os cookies de sessão (JSESSIONID)
-            if self.verbose:
-                print(f"[Login Interno] Etapa 1/2: Acessando '{url_base}' para aquisição do cookie de sessão (JSESSIONID)...")
-            self.session.get(url_base, timeout=10)
-            
-            # 2. Envia o POST de autenticação (O servidor pode demorar até 2 minutos para responder)
-            if self.verbose:
-                print(f"[Login Interno] Etapa 2/2: Enviando requisição POST de autenticação para '{url_auth}' (pode levar até 2 min)...")
-            resp = self.session.post(url_auth, json=payload, headers=headers, timeout=300)
-            if resp.status_code == 200:
-                if self.verbose:
-                    print("[Login Interno] Sucesso: Login interno realizado com êxito (HTTP 200). Atualizando cookies...")
-                self._salvar_cookies_no_ini()
-                return True
-            else:
-                if self.verbose:
-                    print(f"[Login Interno] Falha: O login retornou status HTTP {resp.status_code}. Resposta: {resp.text[:100]}")
-                return False
-        except Exception as e:
-            if self.verbose:
-                print(f"[Login Interno] Erro de conexão durante a tentativa de login interno: {e}")
-            return False
-
-    def _salvar_cookies_no_ini(self):
-        """Salva os cookies de sessão no database.ini para uso futuro, evitando login a cada requisição."""
-        config_file = r'e:/Python/database.ini'
-        if os.path.exists(config_file):
+        for tentativa in range(1, max_tentativas + 1):
             try:
-                parser = ConfigParser()
-                parser.read(config_file, encoding='utf-8')
-                if not parser.has_section('lattesweb'):
-                    parser.add_section('lattesweb')
-                
-                cookies_list = []
-                for c in self.session.cookies:
-                    cookies_list.append({
-                        'name': c.name,
-                        'value': c.value,
-                        'domain': c.domain,
-                        'path': c.path
-                    })
-                
-                parser.set('lattesweb', 'cookies', json.dumps(cookies_list))
-                with open(config_file, 'w', encoding='utf-8') as f:
-                    parser.write(f)
                 if self.verbose:
-                    print("Cookies salvos com sucesso no database.ini.")
+                    print(f"[Login Interno] Tentativa {tentativa}/{max_tentativas}: Acessando '{url_base}' para aquisição do cookie (JSESSIONID)...")
+                self.session.get(url_base, timeout=10)
+
+                if self.verbose:
+                    print(f"[Login Interno] Tentativa {tentativa}/{max_tentativas}: Enviando autenticação para '{url_auth}' (timeout: 600s)...")
+                resp = self.session.post(url_auth, json=payload, headers=headers, timeout=600)
+                if resp.status_code == 200:
+                    if self.verbose:
+                        print("[Login Interno] Sucesso: Login interno realizado com êxito (HTTP 200). Atualizando cookies...")
+                    self._salvar_cookies_na_sessao()
+                    LattesDownloader._ultima_falha_login = None
+                    return True
+                else:
+                    if self.verbose:
+                        print(f"[Login Interno] Falha (Tentativa {tentativa}/{max_tentativas}): HTTP {resp.status_code}. Resposta: {resp.text[:100]}")
             except Exception as e:
                 if self.verbose:
-                    print(f"Erro ao salvar cookies no database.ini: {e}")
+                    print(f"[Login Interno] Erro na tentativa {tentativa}/{max_tentativas}: {e}")
+
+            if tentativa < max_tentativas:
+                time.sleep(2)
+
+        LattesDownloader._ultima_falha_login = datetime.now()
+        return False
+
+    def _salvar_cookies_na_sessao(self):
+        """Salva os cookies no cache local desta sessão (até 24 h), evitando login a cada requisição."""
+        try:
+            cookies_list = [{'name': c.name, 'value': c.value, 'domain': c.domain, 'path': c.path}
+                            for c in self.session.cookies]
+            self.sessao_cache.salvar(cookies_list, self.session.headers.get("User-Agent"))
+            if self.verbose:
+                print(f"Cookies salvos no cache da sessão '{self.sessao_cache.sessao_id}'.")
+        except Exception as e:
+            if self.verbose:
+                print(f"Erro ao salvar cookies no cache da sessão: {e}")
 
     def set_cookies_from_selenium(self, cookies_list):
         """Converte o formato de cookies do Selenium para o Requests."""
@@ -176,7 +168,7 @@ class LattesDownloader(Lattes):
                 domain=cookie.get('domain', '.cnpq.br'),
                 path=cookie.get('path', '/')
             )
-    
+
     def get_id_interno(self, id_16_digitos=None):
         """
         Recupera o ID alfanumérico interno (id_sistema) via redirecionador.
@@ -209,17 +201,50 @@ class LattesDownloader(Lattes):
                 print(f"[ID Interno] Erro ao tentar resolver ID interno para {target_id}: {e}")
             return None
 
-    def get_zip_from_REST(self, set_auto_save=None, path=None):
+    def _resolver_id_interno_buscacv(self, id_16_digitos=None):
+        """Tenta resolver o ID interno alfanumérico via API do BuscaCV corporativo autenticado."""
+        target_id = id_16_digitos if id_16_digitos else self.id_lattes
+        if not target_id:
+            return None
+        try:
+            url_busca = "http://buscacv.cnpq.br/buscacv/rest/consultasimplificada/"
+            payload = {
+                "filtros": [{
+                    "label": "nome",
+                    "normalizador": "sufixoParcial",
+                    "conteudo": str(target_id)
+                }]
+            }
+            resp = self.session.post(url_busca, json=payload, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    docs = data[0].get("docs", [])
+                    if docs and len(docs) > 0:
+                        id_encontrado = docs[0].get("id") or docs[0].get("idCurriculo")
+                        if id_encontrado:
+                            if self.verbose:
+                                print(f"[BuscaCV Interno] ID interno resolvido via busca simplificada: {id_encontrado}")
+                            return id_encontrado
+        except Exception as e:
+            if self.verbose:
+                print(f"[BuscaCV Interno] Falha na busca simplificada por {target_id}: {e}")
+        return None
+
+    def get_zip_from_REST(self, set_auto_save=None, path=None, modo_versao=None):
         """
         Acessa o serviço REST do CNPq e baixa o currículo compactado.
         Estrutura espelhada do método get_zip_from_SOAP.
+        Suporta 3 modos: 'fallback_publico' (padrão), 'publico' e 'exigir_restrito'.
         """
+        if modo_versao is None:
+            modo_versao = getattr(self, 'modo_versao', 'fallback_publico')
         if path is None:
             path = self.path
 
         if set_auto_save is None:
             set_auto_save = self.auto_save_zip_to_disk
-        
+
         self.ocorrencia = None
         self.zip = None
 
@@ -230,12 +255,37 @@ class LattesDownloader(Lattes):
         # 1. Obter o ID interno (K...) necessário para o endpoint REST
         id_interno = self.get_id_interno()
 
+        # Se não obteve o ID alfanumérico (ex: CV restrito/oculto) e o modo permite versão restrita, tenta autenticar antes
+        if not id_interno and modo_versao in ['fallback_publico', 'exigir_restrito']:
+            agora = datetime.now()
+            em_cooldown = False
+            if LattesDownloader._ultima_falha_login is not None:
+                tempo_decorrido = (agora - LattesDownloader._ultima_falha_login).total_seconds()
+                if tempo_decorrido < LattesDownloader._cooldown_login_segundos:
+                    em_cooldown = True
+                    minutos_restantes = int((LattesDownloader._cooldown_login_segundos - tempo_decorrido) / 60)
+                    if self.verbose:
+                        print(f"[Download REST] Currículo restrito/oculto detectado, mas login em cooldown (~{minutos_restantes} min restantes).")
+
+            if not em_cooldown:
+                if self.intranet_login and self.intranet_senha:
+                    print(f"  [LATTES INTERNO] CV restrito/oculto (ID: {self.id_lattes}). Tentando login interno...")
+                    sucesso_login = self._realizar_login_interno(self.intranet_login, self.intranet_senha, max_tentativas=2)
+                    if sucesso_login:
+                        print("  [LATTES INTERNO] Login interno realizado com sucesso (HTTP 200).")
+                        id_interno = self.get_id_interno()
+                        if not id_interno:
+                            id_interno = self._resolver_id_interno_buscacv(self.id_lattes)
+                else:
+                    if self.verbose:
+                        print("[Download REST] Aviso: Credenciais INTRANET não encontradas para tentar login em CV restrito.")
+
         if id_interno:
             url_download = f"http://buscacv.cnpq.br/buscacv/rest/download/curriculo/{id_interno}"
             if self.verbose:
                 print(f"[Download REST] Etapa 2/4: Baixando arquivo ZIP compactado a partir da API REST ({url_download})...")
             try:
-                response = self.session.get(url_download, timeout=120)
+                response = self.session.get(url_download, timeout=600)
                 if response.status_code == 200:
                     self.zip = response.content
                     if self.verbose:
@@ -257,56 +307,89 @@ class LattesDownloader(Lattes):
         if self.zip is not None:
             if self.verbose:
                 print('[Download REST] Etapa 3/4: Descompactando arquivo ZIP e validando estrutura do XML...')
-            
+
             # get_xml() é herdado da classe base
             if self.get_xml():
-                
-                # Verifica se o XML recuperado é a versão restrita, checando pela presença de atributos restritos que não falham
-                if 'CPF=' not in self.xml and 'DATA-NASCIMENTO=' not in self.xml:
-                    if self.verbose:
-                        print("[Download REST] Atenção: XML retornado corresponde à versão pública (ausência de CPF e DATA-NASCIMENTO).")
-                        print("[Download REST] Tentando login interno para liberação do acesso à versão restrita...")
-                    if self.intranet_login and self.intranet_senha:
-                        sucesso_login = self._realizar_login_interno(self.intranet_login, self.intranet_senha)
-                        if sucesso_login:
-                            if self.verbose:
-                                print('[Download REST] Re-executando o download via REST após a autenticação interna...')
-                            try:
-                                response = self.session.get(url_download, timeout=120)
-                                if response.status_code == 200:
-                                    self.zip = response.content
+                xml_publico = ('CPF=' not in self.xml and 'DATA-NASCIMENTO=' not in self.xml)
+
+                if xml_publico:
+                    if modo_versao == 'publico':
+                        if self.verbose:
+                            print("[Download REST] Versão pública identificada e aceita diretamente (modo='publico').")
+
+                    elif modo_versao == 'fallback_publico':
+                        # Modo 2 (Padrão): Tenta autenticar 2 vezes se não estiver no cooldown de 2 horas
+                        agora = datetime.now()
+                        em_cooldown = False
+                        if LattesDownloader._ultima_falha_login is not None:
+                            tempo_decorrido = (agora - LattesDownloader._ultima_falha_login).total_seconds()
+                            if tempo_decorrido < LattesDownloader._cooldown_login_segundos:
+                                em_cooldown = True
+                                minutos_restantes = int((LattesDownloader._cooldown_login_segundos - tempo_decorrido) / 60)
+                                if self.verbose:
+                                    print(f"[Download REST] Versão pública aceita. Cooldown de autenticação ativo (~{minutos_restantes} min restantes).")
+
+                        if not em_cooldown:
+                            if self.intranet_login and self.intranet_senha:
+                                if self.verbose:
+                                    print("[Download REST] Versão pública detectada. Tentando autenticação interna (2 tentativas, timeout 10 min)...")
+                                sucesso_login = self._realizar_login_interno(self.intranet_login, self.intranet_senha, max_tentativas=2)
+                                if sucesso_login:
                                     if self.verbose:
-                                        print(f"[Download REST] Re-download do ZIP concluído com sucesso ({len(self.zip)} bytes).")
-                                    if not self.get_xml():
-                                        self.zip = None
-                                        raise RuntimeError("Erro desconhecido ao decodificar/re-validar o XML recuperado via REST.")
-                                        
-                                    # Checa novamente se o XML restrito veio com sucesso
-                                    if 'CPF=' not in self.xml and 'DATA-NASCIMENTO=' not in self.xml:
-                                        self.zip = None
-                                        raise RuntimeError("Erro: Login reportou sucesso, mas o Lattes baixado continua sendo a versão pública (sem CPF/DATA-NASCIMENTO).")
+                                        print('[Download REST] Re-executando o download via REST após autenticação interna...')
+                                    try:
+                                        response = self.session.get(url_download, timeout=600)
+                                        if response.status_code == 200:
+                                            self.zip = response.content
+                                            self.get_xml()
+                                    except Exception:
+                                        pass
                                 else:
-                                    self.ocorrencia = f"Erro HTTP {response.status_code} no re-download REST."
+                                    if self.verbose:
+                                        print("[Download REST] Autenticação falhou após 2 tentativas. Prosseguindo com versão pública (cooldown de 2 horas ativado).")
+                            else:
+                                if self.verbose:
+                                    print("[Download REST] Credenciais INTRANET não encontradas. Prosseguindo com versão pública.")
+
+                    elif modo_versao == 'exigir_restrito':
+                        # Modo 3: Comportamento restrito estrito (aborta se não conseguir autenticar)
+                        if self.intranet_login and self.intranet_senha:
+                            sucesso_login = self._realizar_login_interno(self.intranet_login, self.intranet_senha, max_tentativas=2)
+                            if sucesso_login:
+                                if self.verbose:
+                                    print('[Download REST] Re-executando o download via REST após autenticação interna...')
+                                try:
+                                    response = self.session.get(url_download, timeout=600)
+                                    if response.status_code == 200:
+                                        self.zip = response.content
+                                        if not self.get_xml():
+                                            self.zip = None
+                                            raise RuntimeError("Erro desconhecido ao decodificar/re-validar o XML recuperado via REST.")
+                                        if 'CPF=' not in self.xml and 'DATA-NASCIMENTO=' not in self.xml:
+                                            self.zip = None
+                                            raise RuntimeError("Erro: Login reportou sucesso, mas o Lattes baixado continua sendo a versão pública (sem CPF/DATA-NASCIMENTO).")
+                                    else:
+                                        self.ocorrencia = f"Erro HTTP {response.status_code} no re-download REST."
+                                        self.zip = None
+                                        return self.ocorrencia
+                                except Exception as e:
+                                    if isinstance(e, RuntimeError):
+                                        raise e
+                                    self.ocorrencia = f"Falha na conexão REST durante o re-download: {str(e)}"
                                     self.zip = None
                                     return self.ocorrencia
-                            except Exception as e:
-                                if isinstance(e, RuntimeError):
-                                    raise e
-                                self.ocorrencia = f"Falha na conexão REST durante o re-download: {str(e)}"
+                            else:
                                 self.zip = None
-                                return self.ocorrencia
+                                raise RuntimeError("Erro: Falha no login interno. Download abortado para evitar sobrescrita com a versão pública.")
                         else:
                             self.zip = None
-                            raise RuntimeError("Erro: Falha no login interno. Download abortado para evitar sobrescrita com a versão pública.")
-                    else:
-                        self.zip = None
-                        raise RuntimeError("Erro: Credenciais INTRANET-LOGIN/SENHA não encontradas no .env. Download abortado.")
-                
+                            raise RuntimeError("Erro: Credenciais INTRANET-LOGIN/SENHA não encontradas no cofre de segredos. Download abortado.")
+
                 if self.verbose:
-                    print('[Download REST] Validação concluída com sucesso: XML restrito/válido identificado.')
-                
+                    print('[Download REST] Validação concluída com sucesso.')
+
                 self.ocorrencia = "Curriculo recuperado com sucesso!"
-                
+
                 if set_auto_save:
                     if self.verbose:
                         print(f'[Download REST] Etapa 4/4: Salvando arquivo ZIP compactado no disco ({path})...')
@@ -325,57 +408,50 @@ class LattesDownloader(Lattes):
             else:
                 if self.verbose:
                     print('[Download REST] Erro na validação: Falha ao extrair e converter o XML do ZIP recuperado.')
-                
+
                 # Tratamento de erro herdado
                 if self.ocorrencia is None:
                     self.ocorrencia = 'Erro desconhecido ao validar o XML recuperado via REST.'
-                
+
                 self.zip = None
                 self.json = None
                 self.xml = None
-                
+
                 if self.verbose:
                     print(f'        {self.ocorrencia}')
-        
+
         return self.ocorrencia
 
     @staticmethod
-    def capturar_sessao_interativa(config_file=r'e:/Python/database.ini'):
+    def capturar_sessao_interativa(sessao_id="interativa"):
         """
         Abre o navegador para login manual e captura os cookies após a conclusão.
+
+        Os cookies ficam no cache local da sessão ``sessao_id`` (até 24 h). Para usá-los:
+        ``LattesDownloader(..., sessao_id="interativa")``.
         """
         print("--- INICIANDO CAPTURA DE SESSÃO ---")
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-        
+
         try:
             # Navega para o portal
             driver.get("http://buscacv.cnpq.br/buscacv/")
-            
+
             print("\nINSTRUÇÕES:")
             print("1. Realize o login manualmente no navegador que abriu.")
             print("2. Certifique-se de que você está na tela de busca ou visualizando um currículo.")
             print("3. Volte aqui no terminal e pressione ENTER.")
-            
+
             input("\n[Pressione ENTER após concluir o login no navegador...]")
-            
+
             # Captura os cookies e o User-Agent
             cookies = driver.get_cookies()
             user_agent = driver.execute_script("return navigator.userAgent")
-            
-            # Salva os cookies e user_agent no arquivo de configuração
-            parser = ConfigParser()
-            if os.path.exists(config_file):
-                parser.read(config_file, encoding='utf-8')
-                
-            if not parser.has_section('lattesweb'):
-                parser.add_section('lattesweb')
-                
-            parser.set('lattesweb', 'user_agent', user_agent)
-            parser.set('lattesweb', 'cookies', json.dumps(cookies))
-            with open(config_file, 'w', encoding='utf-8') as f:
-                parser.write(f)
-                
-            print(f"Sucesso: {len(cookies)} cookies capturados e salvos em {config_file}.")
+
+            # Salva os cookies e o user_agent no cache local da sessão
+            cache = SessaoCache(sessao_id)
+            cache.salvar(cookies, user_agent)
+            print(f"Sucesso: {len(cookies)} cookies capturados na sessão '{cache.sessao_id}' (válida por até 24 h).")
             return cookies, user_agent
 
         finally:

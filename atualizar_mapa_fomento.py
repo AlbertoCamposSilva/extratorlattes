@@ -4,7 +4,7 @@ import re
 import time
 import datetime
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from acs_toolbox.database import Database
 from extratorlattes.lattesweb import LattesDownloader
 from extratorlattes.lattes_indicadores import Indicadores
@@ -49,21 +49,18 @@ def processar_mapa_fomento(diretorio):
         engine_str = Database.db_engine(config_file=db.config_file)
         engine = create_engine(engine_str)
 
+        # A tabela nunca é criada aqui: ela tem chave primária (id, gerado pelo banco) e índices definidos à mão.
         if not db.check_if_table_exists(table_name):
-            print(f"A tabela '{table_name}' não existe. Criando estrutura inicial...")
-            
-            # Exportar apenas as colunas vazias para criar a tabela com os tipos adequados
-            df.head(0).to_sql(table_name, engine, schema=schema_name, if_exists='replace', index=False)
-            print(f"Tabela '{table_name}' criada com sucesso.")
-        else:
-            print(f"Removendo registros anteriores com a data de extração {data_extracao}...")
-            db.execute(f"DELETE FROM {schema_name}.{table_name} WHERE data_extracao::text = %s;", [str(data_extracao)])
-            
-        # 4. Inserção dos dados
+            raise RuntimeError(f"A tabela '{schema_name}.{table_name}' não existe. Crie-a antes, com a chave primária 'id'.")
+
+    # 4. Substituição dos dados desta data de extração, numa única transação (se a inserção falhar, nada é apagado)
+    with engine.begin() as con:
+        print(f"Removendo registros anteriores com a data de extração {data_extracao}...")
+        con.execute(text(f"DELETE FROM {schema_name}.{table_name} WHERE data_extracao = :data"), {"data": str(data_extracao)})
         print(f"Inserindo {len(df)} registros...")
-        df.to_sql(table_name, engine, schema=schema_name, if_exists='append', index=False, method='multi', chunksize=10000)
-        print("Carga concluída com sucesso.")
-        return df
+        df.to_sql(table_name, con, schema=schema_name, if_exists='append', index=False, method='multi', chunksize=10000)
+    print("Carga concluída com sucesso.")
+    return df
 
     # 5. Atualização dos Lattes
 def atualizar_lattes(coluna_id_lattes, df):

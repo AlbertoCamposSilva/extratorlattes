@@ -3,11 +3,11 @@ from Carga import Carga
 from pandas import pandas as pd
 import numpy as np
 import unidecode
-import Database
+from extratorlattes import Database
 import json
 
 #Carregar arquivo na memória
-db = Database.Database('CNPq')
+db = Database()
 engine = Carga.db_engine()
 dt = pd.read_sql("indicadores_pareamento", engine)
 #size: 386.669.844

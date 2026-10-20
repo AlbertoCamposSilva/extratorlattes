@@ -1,5 +1,5 @@
 import extratorlattes
-from acs_toolbox.database import Database
+from extratorlattes.lattes_database import LattesDatabase as Database
 import os
 import zeep
 import pytz
@@ -27,7 +27,7 @@ class Lattes:
                  verbose=False,
                  show_sql=False,
                  connect_to_db=False, 
-                 db_config_file=r'e:/Python/database.ini',
+                 db_config_file=None,
                  use_soap=False): # Novo parâmetro de controle
         
         self.auto_save_json_to_bd = auto_save_json_to_bd
@@ -103,10 +103,62 @@ class Lattes:
             if id_lattes is not None:
                 self.id_lattes = self.set_id(id_lattes)
 
-        
-
-
-
+    def reiniciar(self, id_lattes=None):
+        """
+        Reinicializa os dados do Lattes (simula o comportamento do __init__)
+        para permitir reaproveitamento da instância (ex: para não ter que criar 
+        uma nova sessão web repetidamente).
+        """
+        self.update_errors_on_bd = False
+        self.nome = None
+        self.CPF = None
+        self.data_nascimento = None
+        self.ocorrencia = None
+        self.zip = None
+        self.xml = None
+        self.soup = None
+        self.df = None
+        self.json = None
+        self.data_atualizacao = None
+        self.bd_data_atualizacao = None
+        self.lattes_palavras_chave = []
+        self.lattes_dados_gerais = {
+            'id_lattes': None,
+            'data_atualizacao': None,
+            'nome_completo': None,
+            'nomes_citacao': None,
+            'nacionalidade': None,
+            'cpf': None,
+            'pais_nascimento': None,
+            'uf_nascimento': None,
+            'cidade_nascimento': None,
+            'data_nascimento': None,
+            'sexo': None,
+            'numero_identidade': None,
+            'orgao_emissor_identidade': None,
+            'uf_orgao_emissor_identidade': None,
+            'data_emissao_identidade': None,
+            'numero_passaporte': None,
+            'nome_pai': None,
+            'nome_mae': None,
+            'permissao_divulgacao': None,
+            'data_falecimento': None,
+            'raca_cor': None,
+            'resumo_cv_rh': None,
+            'resumo_cv_rh_en': None,
+            'outras_informacoes_relevantes': None,
+            'email': None,
+            'sigla_pais_nacionalidade': None,
+            'pais_nacionalidade': None,
+            'orcid': None,
+            'pcd': None,
+        }
+        if id_lattes is not None:
+            self.id_lattes = self.set_id(id_lattes)
+            if hasattr(self, 'client') and self.client is not None:
+                self.can_get_soap = self.check_if_can_get_soap()
+        else:
+            self.id_lattes = None
 
 #       ___           ___           ___           ___
 #      /\__\         /\  \         /\  \         /\  \
@@ -312,6 +364,9 @@ class Lattes:
     def insert_xml(self):
         """
         Insere o XML do currículo na tabela lattes_xml do banco de dados.
+        LEGADO: lattes_xml foi removida do banco do CNPq (estava vazia) e nada chama este método por padrão.
+        Se a tabela não existir, a gravação lança exceção (ela nunca é criada automaticamente).
+        LLMs/agentes: o currículo completo fica no lattes_json; priorize-o.
         """
         sql = """INSERT INTO lattes_xml (
             id_lattes, xml)
@@ -380,6 +435,7 @@ class Lattes:
     def get_xml_bd(self):
         """
         Recupera o XML do banco de dados para o ID atual.
+        LEGADO: lê a tabela lattes_xml, removida do banco do CNPq; sem ela, lança exceção. Use get_json_bd().
 
         Returns:
             bool: True se encontrou e carregou o XML.

@@ -12,7 +12,7 @@ Como o Firewall do CNPq derruba ativamente conexões sequenciais muito rápidas 
 - Nunca execute downloads em massa sem usar `time.sleep(1)` entre os acessos!
 
 ### 2. Autenticação e Dados Restritos (CPF / Data de Nascimento)
-A extração carrega automaticamente as credenciais da Intranet (cookies) presentes no arquivo `database.ini` (sessão `[lattesweb]`).
+As credenciais da Intranet (`INTRANET-LOGIN`/`INTRANET-SENHA`) vêm do cofre de segredos (`acs_toolbox.segredos`). Os cookies da sessão autenticada ficam num cache local e temporário, um arquivo por sessão, válido por até 24 h (`extratorlattes.sessao_cache`). Para reaproveitar uma sessão entre instâncias, passe o mesmo `sessao_id` (ex.: `LattesDownloader(..., sessao_id="interativa")` após `LattesDownloader.capturar_sessao_interativa()`).
 - O downloader checa internamente o XML baixado: **Se o currículo não contiver `CPF=` e também não contiver `DATA-NASCIMENTO=`**, a classe abortará a operação, ciente de que a sessão expirou e o CNPq entregou uma versão "pública" truncada.
 - Isso garante que todos os currículos contabilizados como sucesso estão 100% íntegros e restritos no banco de dados.
 

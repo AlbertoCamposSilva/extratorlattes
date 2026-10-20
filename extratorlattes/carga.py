@@ -62,7 +62,7 @@ class Carga:
             ('Grande Área', 'Área', 'Sub-Área', 'Especialidade')]
         if connect_to_bd == True:
             try:
-                self.bd = lt.Database('CNPq')
+                self.bd = lt.Database()
                 self.connect_to_bd = connect_to_bd
                 self.lattes = lt.Lattes()
             except:
@@ -95,11 +95,14 @@ class Carga:
         # Importações
         self.on_conflic_update = True
         self.importar_indicadores = True
-        self.importar_palavras_chave = True
-        self.importar_areas_conhecimento = True
-        self.importar_publicações = True
+        # Tabelas legadas (lattes_palavras_chave, lattes_areas_conhecimento, lattes_publicacoes, lattes_vinculos):
+        # desligadas por padrão. Foram removidas do banco do CNPq; os dados vêm direto do lattes_json.
+        # LLMs/agentes: priorizar consultas ao lattes_json e só ligar estas opções a pedido explícito.
+        self.importar_palavras_chave = False
+        self.importar_areas_conhecimento = False
+        self.importar_publicações = False
         self.importar_dados_gerais = True
-        self.importar_vinculos = True
+        self.importar_vinculos = False
 
         self.auto_save_json_to_bd = True
         self.pegar_lista_de_importação_de_arquivo = False

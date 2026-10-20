@@ -5,7 +5,7 @@ import time
 sys.path.append(os.path.abspath('.'))
 from extratorlattes.lattesweb import LattesDownloader
 from extratorlattes.indicadores import Indicadores
-from extratorlattes.database import Database
+from extratorlattes import Database
 
 def main():
     print("Conectando ao banco de dados para buscar currículos com dados restritos ausentes (CPF e Data de Nascimento)...")

@@ -47,7 +47,7 @@ class Regressao:
         self.est2 = None
         self.lista_regressões = []
 
-        self.db = lt.Database('CNPq')
+        self.db = lt.Database()
 
         # variáveis de inicialização
         self.variável_dependente = 'qty_2019'

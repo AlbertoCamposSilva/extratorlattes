@@ -1,5 +1,5 @@
 import extratorlattes
-from acs_toolbox.database import Database
+from extratorlattes.lattes_database import LattesDatabase as Database
 from datetime import datetime
 from shutil import ExecError
 import pytz
@@ -16,6 +16,15 @@ from functools import wraps
 import numpy as np
 
 
+# Tabelas derivadas do lattes_json que foram removidas do banco do CNPq em 10/2026 por estarem paradas
+# (cobriam menos de 2% dos currículos). O código de gravação continua aqui, desligado por padrão.
+# NOTA PARA LLMs/AGENTES: para vínculos, publicações, palavras-chave e áreas de atuação de um pesquisador,
+# PRIORIZE consultas diretas ao lattes_json (índices idx_lattes_fts e idx_lattes_identificacao). Não ligue as
+# opções legadas de atualiza() nem recrie estas tabelas sem pedido explícito do usuário.
+# Atenção: o catálogo oficial de áreas do conhecimento do CNPq é outra tabela, cnpq_areas_conhecimento.
+TABELAS_LEGADAS = ('lattes_palavras_chave', 'lattes_areas_conhecimento', 'lattes_publicacoes', 'lattes_vinculos')
+
+
 class Indicadores:
 
     def __init__(self,
@@ -30,7 +39,7 @@ class Indicadores:
                  verbose=False,
                  read_from_soap=True,
                  dbparams=None,
-                 config_file=r'e:/Python/database.ini',
+                 config_file=None,
                  auto_load_Lattes = False,
                  get_from_zip = False,
                  get_from_lattes_json = False,
@@ -176,6 +185,17 @@ class Indicadores:
                       (f.__name__, (te-ts).total_seconds()))
             return result
         return wrap
+
+    def _exige_tabela_legada(self, tabela):
+        """
+        Interrompe a gravação com erro claro se a tabela legada não existir no banco.
+        Nunca cria a tabela automaticamente: recriá-la é decisão do usuário (ver TABELAS_LEGADAS).
+        """
+        existe, _ = self.db.query("SELECT to_regclass(%s)", (tabela,), many=False)
+        if existe is None or existe[0] is None:
+            raise RuntimeError(
+                f"A tabela legada '{tabela}' não existe neste banco (foi removida por estar desatualizada). "
+                f"Use os dados direto do lattes_json ou recrie a tabela conscientemente com extratorlattes.schema.")
 
     def get_list(self, d):
         """
@@ -523,11 +543,13 @@ class Indicadores:
     def salva_palavras_chave_no_bd(self):
         """
         Salva as palavras-chave extraídas no banco de dados.
+        LEGADO: tabela lattes_palavras_chave (ver TABELAS_LEGADAS). Prefira o lattes_json.
         """
         if self.lattes_palavras_chave == None or len(self.lattes_palavras_chave) == 0:
             if self.verbose:
                 print('A lista de palavras chaves é inexistente ou está vazia.')
             return False
+        self._exige_tabela_legada('lattes_palavras_chave')
         if self.on_conflic_update:
             sql = "DELETE from lattes_palavras_chave WHERE id_lattes = %s;\n"
             sql = self.db.cursor.mogrify(sql, (self.id_lattes,)).decode("utf-8")
@@ -599,10 +621,13 @@ class Indicadores:
     @timing
     def salva_areas_do_conhecimento_no_bd(self):
         """
-        Salva as áreas do conhecimento no banco de dados.
+        Salva as áreas de atuação do currículo no banco de dados.
+        LEGADO: tabela lattes_areas_conhecimento (id_lattes, tipo, area), ver TABELAS_LEGADAS. Prefira o lattes_json.
+        Não confundir com o catálogo oficial de áreas do CNPq (cnpq_areas_conhecimento).
         """
         if self.lattes_areas_conhecimento == None or len(self.lattes_areas_conhecimento) == 0:
             return False
+        self._exige_tabela_legada('lattes_areas_conhecimento')
         sql = ''
         if self.on_conflic_update:
             sql += self.db.cursor.mogrify(
@@ -684,9 +709,11 @@ class Indicadores:
     def salva_publicações_no_bd(self):
         """
         Salva as publicações extraídas no banco de dados.
+        LEGADO: tabela lattes_publicacoes (ver TABELAS_LEGADAS). Prefira o lattes_json.
         """
         if self.lista_de_publicações == None or len(self.lista_de_publicações) == 0:
             return False
+        self._exige_tabela_legada('lattes_publicacoes')
         sql = ''
         args_str = ','.join((self.db.cursor.mogrify("\n(%s, %s, %s, %s, %s, %s, %s)", x).decode(
             "utf-8")) for x in self.lista_de_publicações)
@@ -789,8 +816,10 @@ class Indicadores:
     def salva_vinculos_no_bd(self):
         """
         Salva vínculos profissionais no banco de dados.
+        LEGADO: tabela lattes_vinculos (ver TABELAS_LEGADAS). Prefira o lattes_json.
         """
         if not self.lattes_vinculos == None and len(self.lattes_vinculos) > 0:
+            self._exige_tabela_legada('lattes_vinculos')
             sql = '''
                 INSERT INTO lattes_vinculos
                     (id_lattes, instituicao, num_anos, atual, enquadramento, tipo)
@@ -941,6 +970,11 @@ class Indicadores:
                  ):
         """
         Executa o fluxo completo de extração e salvamento de dados (lattes_indicadores, palavras-chave, etc.).
+
+        As opções lattes_palavras_chave, lattes_areas_conhecimento, publicações e lattes_vinculos gravam em tabelas
+        LEGADAS (ver TABELAS_LEGADAS) e ficam desligadas por padrão. Se forem ligadas e a tabela não existir, a
+        gravação lança RuntimeError (a tabela nunca é criada automaticamente).
+        LLMs/agentes: priorizar o lattes_json para esses dados.
 
         Returns:
             bool: True se sucesso.

@@ -17,7 +17,7 @@ O Firewall do CNPq derrubará sumariamente conexões (`ConnectionResetError` 100
 - **PowerOfFourRetry**: Política de retentativa (base 4) que aplica esperas de `4s`, `16s`, `64s` a cada falha de conexão subsequente. O limite máximo fixo absoluto deve ser `120` segundos e o número de retentativas não deve exceder 3. Somente após a terceira tentativa falha (ou se houver um tempo esgotado) o erro deve propagar.
 
 ## 3. Verificação de Integridade de Sessão Logada (Dados Restritos)
-Currículos baixados com login de servidor do CNPq (`database.ini`) devem conter dados pessoais.
+Currículos baixados com login de servidor do CNPq (credenciais no cofre de segredos; cookies no cache local de sessão) devem conter dados pessoais.
 - **Regra**: A sessão expirou ou o Lattes foi retornado na versão pública SE E SOMENTE SE as marcações XML de **ambos** os atributos `CPF=` **e** `DATA-NASCIMENTO=` estiverem ausentes. Pesquisadores estrangeiros podem não ter `CPF`, mas terão `DATA-NASCIMENTO`.
 - Se ambos faltarem, lance um erro (como `RuntimeError`), indicando que o Lattes baixado é a versão pública e precisa de relogin.
 
@@ -33,3 +33,16 @@ O processo oficial de baixar e gravar os dados DEVE ser feito via REST (HTTP) ut
   2. Defina o ID alvo: `downloader.id_lattes = ID` e chame `downloader.get_zip_from_REST()`.
   3. Se retornar sucesso, extraia e grave os dados instanciando a classe `Indicadores`: `ind = Indicadores(lattes=downloader, verbose=False)`.
   4. Por fim, chame `ind.atualiza()` para que o banco de dados seja de fato atualizado.
+
+## 6. Fonte de dados: priorize o `lattes_json`
+- **Regra**: para vínculos, publicações, palavras-chave e áreas de atuação de um pesquisador, consulte **direto o
+  `lattes_json`** (índices `idx_lattes_fts` e `idx_lattes_identificacao`).
+- As tabelas `lattes_xml`, `lattes_palavras_chave`, `lattes_areas_conhecimento` (id_lattes, tipo, area),
+  `lattes_publicacoes` e `lattes_vinculos` são **legadas**. Foram removidas do banco do CNPq em 10/2026 porque estavam
+  paradas e cobriam menos de 2% dos currículos.
+  - O código de gravação continua na biblioteca, **desligado por padrão** em `Indicadores.atualiza()` e em `Carga`.
+  - Se uma opção legada for ligada e a tabela não existir, a gravação lança `RuntimeError`. A tabela **nunca** é criada
+    automaticamente.
+  - Não ligue essas opções nem rode `constroi_tabelas` para recriá-las sem pedido explícito do usuário.
+- O catálogo oficial de áreas do conhecimento do CNPq é a tabela `cnpq_areas_conhecimento` (código, nome e hierarquia).
+  Não é derivada dos currículos.

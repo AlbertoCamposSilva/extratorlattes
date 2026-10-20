@@ -8,7 +8,7 @@ import json
 import shutil
 import zipfile
 from pathlib import Path
-from dotenv import load_dotenv
+from acs_toolbox.segredos import get_secret
 
 def update_version(file_path):
     """Lê o pyproject.toml, incrementa a versão e salva."""
@@ -53,15 +53,11 @@ def get_github_repo():
 
 def create_github_release(version):
     """Cria uma nova release no GitHub usando a REST API."""
-    try:
-        load_dotenv(r"E:\Python\.env")
-    except ImportError:
-        print("--- Aviso: python-dotenv não instalado. Lendo variáveis nativas do sistema. ---")
 
-    token = os.environ.get("GITHUB_TOKEN")
+    token = get_secret("GITHUB_TOKEN", default=None)
     if not token:
         print("--- Aviso: Variável de ambiente 'GITHUB_TOKEN' não encontrada. Pulando criação de Release no GitHub. ---")
-        print("Dica: Defina o GITHUB_TOKEN no Windows para automatizar as releases.")
+        print("Dica: cadastre GITHUB_TOKEN no cofre de segredos (acs_toolbox) para automatizar as releases.")
         return
 
     owner, repo = get_github_repo()
@@ -99,7 +95,7 @@ def main():
 
     # 0. Instalar dependências de build
     print("--- Instalando dependências de build ---")
-    run_command(f'"{sys.executable}" -m pip install --upgrade build twine python-dotenv')
+    run_command(f'"{sys.executable}" -m pip install --upgrade build twine "acs-toolbox[gcp]"')
 
     # 1. Incrementar versão
     new_ver = update_version(pyproject_path)

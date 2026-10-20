@@ -2,7 +2,7 @@
 from Carga import Carga
 from pandas import pandas as pd
 import numpy as np
-import Database
+from extratorlattes import Database
 import json
 from datetime import datetime
 
@@ -114,7 +114,7 @@ class pareamentos ():
         '''
     
         #Criando table, se não existir
-        self.db = Database.Database('CNPq')
+        self.db = Database()
         self.engine = Carga.db_engine()
         self.db.execute(sql)
     
