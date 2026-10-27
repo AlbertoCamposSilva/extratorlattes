@@ -2,14 +2,13 @@ import extratorlattes
 from extratorlattes.lattes_database import LattesDatabase as Database
 import os
 import zeep
-import pytz
 import html
 import xmltodict
 import json
 from zipfile import ZipFile
 import io
 import pathlib
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import OrderedDict
 import pandas
 
@@ -316,7 +315,7 @@ class Lattes:
                 'Your IP does not have permission to download the Curriculum.')
         else:
             self.data_atualizacao = datetime.strptime(
-                self.data_atualizacao, '%d/%m/%Y %H:%M:%S').replace(tzinfo=pytz.UTC)
+                self.data_atualizacao, '%d/%m/%Y %H:%M:%S').replace(tzinfo=timezone.utc)
             return self.data_atualizacao
 
 
@@ -850,7 +849,7 @@ class Lattes:
             self.lattes_dados_gerais['data_atualizacao'] = datetime.strptime(
                 data + hora, '%d%m%Y%H%M%S')
             self.data_atualizacao = self.lattes_dados_gerais['data_atualizacao'].replace(
-                tzinfo=pytz.UTC)
+                tzinfo=timezone.utc)
 
     def _parse_date(self, date_str, fmt='%d/%m/%Y'):
         """Helper interno para conversão segura de datas."""

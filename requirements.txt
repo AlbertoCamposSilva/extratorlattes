@@ -19,7 +19,6 @@ zeep
 unidecode
 xmltodict
 beautifulsoup4
-pytz
 
 # Instalação e Empacotamento
 setuptools

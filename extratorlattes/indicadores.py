@@ -2,7 +2,6 @@ import extratorlattes
 from extratorlattes.lattes_database import LattesDatabase as Database
 from datetime import datetime
 from shutil import ExecError
-import pytz
 import json
 import time
 from collections import OrderedDict
